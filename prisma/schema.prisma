@@ -1,0 +1,322 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  ADMIN
+  CASHIER
+}
+
+enum OrderStatus {
+  PENDING
+  KITCHEN
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderType {
+  DINE_IN
+  TAKEOUT
+  DELIVERY
+}
+
+enum TableStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  JAZZCASH
+  EASYPAISA
+}
+
+model User {
+  id                     String                 @id @default(uuid())
+  email                  String                 @unique
+  password               String
+  name                   String
+  role                   Role                   @default(CASHIER)
+  isActive               Boolean                @default(true)
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  orders                 Order[]
+  kitchenStatusHistories KitchenStatusHistory[]
+  invoicesCreated        Invoice[]              @relation("InvoiceCreatedBy")
+  paymentsProcessed      Payment[]              @relation("PaymentProcessedBy")
+  ordersCancelled        Order[]                @relation("OrderCancelledBy")
+  passwordResetTokens    PasswordResetToken[]
+
+  @@index([role])
+  @@index([isActive])
+  @@map("users")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@map("password_reset_tokens")
+}
+
+model RestaurantSettings {
+  id             String   @id @default(uuid())
+  restaurantName String   @default("SliceMaster Pizzeria")
+  logoUrl        String?
+  address        String   @default("Main Boulevard, Gulberg III, Lahore, Pakistan")
+  phone          String   @default("+92 42 111 749 922")
+  receiptFooter  String   @default("Thank you for dining with SliceMaster! Visit again.")
+  currency       String   @default("PKR")
+  timezone       String   @default("Asia/Karachi")
+  taxPercentage  Float    @default(16.0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("restaurant_settings")
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  name      String
+  phone     String   @unique
+  address   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  orders    Order[]
+
+  @@map("customers")
+}
+
+model Table {
+  id          String      @id @default(uuid())
+  tableNumber Int         @unique
+  tableName   String
+  capacity    Int         @default(4)
+  status      TableStatus @default(AVAILABLE)
+  notes       String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  orders      Order[]
+
+  @@map("tables")
+}
+
+model Category {
+  id           String     @id @default(uuid())
+  name         String     @unique
+  description  String?
+  displayOrder Int        @default(0)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  menuItems    MenuItem[]
+
+  @@map("categories")
+}
+
+model PizzaSize {
+  id           String          @id @default(uuid())
+  name         String          @unique
+  displayOrder Int             @default(0)
+  isActive     Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  itemPrices   MenuItemPrice[]
+
+  @@map("pizza_sizes")
+}
+
+model ExtraTopping {
+  id           String   @id @default(uuid())
+  name         String   @unique
+  price        Float
+  isAvailable  Boolean  @default(true)
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("extra_toppings")
+}
+
+model ExtraCheese {
+  id          String   @id @default(uuid())
+  name        String   @default("Extra Cheese")
+  extraPrice  Float    @default(250)
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("extra_cheese")
+}
+
+model MenuItem {
+  id                 String          @id @default(uuid())
+  categoryId         String
+  category           Category        @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name               String
+  description        String?
+  basePrice          Float
+  image              String?
+  isAvailable        Boolean         @default(true)
+  isCustomizable     Boolean         @default(false)
+  allowSizes         Boolean         @default(false)
+  allowExtraCheese   Boolean         @default(false)
+  allowExtraToppings Boolean         @default(false)
+  allowNotes         Boolean         @default(true)
+  maxNotesLength     Int             @default(200)
+  notesPlaceholder   String          @default("e.g. No onions, extra crispy, cut into 8 slices")
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  itemPrices         MenuItemPrice[]
+  orderItems         OrderItem[]
+
+  @@index([categoryId])
+  @@index([isAvailable])
+  @@map("menu_items")
+}
+
+model MenuItemPrice {
+  id         String    @id @default(uuid())
+  menuItemId String
+  menuItem   MenuItem  @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  sizeId     String
+  size       PizzaSize @relation(fields: [sizeId], references: [id], onDelete: Cascade)
+  price      Float
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([menuItemId, sizeId])
+  @@map("menu_item_prices")
+}
+
+model Order {
+  id             String        @id @default(uuid())
+  orderNumber    String        @unique
+  status         OrderStatus   @default(PENDING)
+  type           OrderType     @default(DINE_IN)
+  subtotal       Float         @default(0)
+  taxAmount      Float         @default(0)
+  discountAmount Float         @default(0)
+  totalAmount    Float
+  customerNotes  String?
+  tableId        String?
+  table          Table?        @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  tableNumber    Int?
+  customerId     String?
+  customer       Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  cashierId          String
+  cashier            User          @relation(fields: [cashierId], references: [id])
+  cancellationReason String?
+  cancelledAt        DateTime?
+  cancelledById      String?
+  cancelledBy        User?         @relation("OrderCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  items              OrderItem[]
+  kitchenOrder       KitchenOrder?
+  invoice            Invoice?
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([type])
+  @@index([cashierId])
+  @@map("orders")
+}
+
+model KitchenOrder {
+  id            String                 @id @default(uuid())
+  kotNumber     String                 @unique
+  orderId       String                 @unique
+  order         Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status        OrderStatus            @default(PENDING)
+  startedAt     DateTime?
+  readyAt       DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  statusHistory KitchenStatusHistory[]
+
+  @@index([status])
+  @@map("kitchen_orders")
+}
+
+model KitchenStatusHistory {
+  id             String       @id @default(uuid())
+  kitchenOrderId String
+  kitchenOrder   KitchenOrder @relation(fields: [kitchenOrderId], references: [id], onDelete: Cascade)
+  status         OrderStatus
+  changedById    String?
+  changedBy      User?        @relation(fields: [changedById], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now())
+
+  @@map("kitchen_status_histories")
+}
+
+model Invoice {
+  id             String      @id @default(uuid())
+  invoiceNumber  String      @unique
+  orderId        String      @unique
+  order          Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  subtotal       Float
+  taxAmount      Float
+  discountAmount Float
+  grandTotal     Float
+  createdById    String
+  createdBy      User        @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  payment        Payment?
+
+  @@map("invoices")
+}
+
+model Payment {
+  id            String        @id @default(uuid())
+  invoiceId     String        @unique
+  invoice       Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  method        PaymentMethod @default(CASH)
+  amount        Float
+  paidAt        DateTime      @default(now())
+  processedById String
+  processedBy   User          @relation("PaymentProcessedBy", fields: [processedById], references: [id])
+
+  @@index([method])
+  @@index([paidAt])
+  @@map("payments")
+}
+
+model OrderItem {
+  id               String    @id @default(uuid())
+  orderId          String
+  order            Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId        String?
+  menuItem         MenuItem? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName      String    @default("Product")
+  sizeId           String?
+  sizeName         String?
+  extraCheese      Boolean   @default(false)
+  cheesePrice      Float     @default(0)
+  selectedToppings Json?
+  itemNotes        String?
+  quantity         Int
+  unitPrice        Float
+  totalPrice       Float
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
