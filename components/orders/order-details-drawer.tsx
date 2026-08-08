@@ -1,12 +1,13 @@
-"use client";
-
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCartStore } from "@/store/use-cart-store";
 import { Drawer } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { OrderStatusBadge } from "./order-status-badge";
 import { formatCurrency } from "@/lib/utils";
 import { ThermalReceipt } from "@/components/billing/thermal-receipt";
+import { PaymentModal } from "@/components/billing/payment-modal";
 import { CancelOrderModal } from "./cancel-order-modal";
 import {
   Printer,
@@ -23,6 +24,7 @@ import {
   AlertTriangle,
   Receipt,
   FileText,
+  Edit3,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
@@ -31,17 +33,23 @@ interface OrderDetailsDrawerProps {
   orderId: string | null;
   onClose: () => void;
   onOrderCancelled?: () => void;
+  onOrderUpdated?: () => void;
 }
 
 export function OrderDetailsDrawer({
   orderId,
   onClose,
   onOrderCancelled,
+  onOrderUpdated,
 }: OrderDetailsDrawerProps) {
+  const router = useRouter();
   const { user } = useAuth();
+  const loadOrderIntoCart = useCartStore((state) => state.loadOrderIntoCart);
+
   const [order, setOrder] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isCancelModalOpen, setIsCancelModalOpen] = useState<boolean>(false);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState<boolean>(false);
   const [receiptData, setReceiptData] = useState<any | null>(null);
 
   const fetchOrderDetails = async () => {
@@ -108,11 +116,38 @@ export function OrderDetailsDrawer({
     }
   };
 
+  const handleEditOrder = () => {
+    if (!order) return;
+    loadOrderIntoCart(order);
+    toast.info(`Loaded Order #${order.orderNumber} into POS terminal for editing.`);
+    onClose();
+    router.push("/pos");
+  };
+
+  const handlePaymentSuccess = async (paymentResult: any) => {
+    const targetOrderId =
+      paymentResult?.order?.id || paymentResult?.orderId || paymentResult?.invoice?.orderId || orderId;
+
+    try {
+      await fetchOrderDetails();
+      if (onOrderUpdated) onOrderUpdated();
+      if (targetOrderId) {
+        const res = await fetch(`/api/billing/invoices/${targetOrderId}`);
+        const json = await res.json();
+        if (res.ok && json.success) {
+          setReceiptData(json.data);
+        }
+      }
+    } catch (error) {
+      console.error("Receipt fetch error:", error);
+    }
+  };
+
   if (!orderId) return null;
 
   const isCompleted = order?.status === "COMPLETED";
   const isCancelled = order?.status === "CANCELLED";
-  const isPaid = !!order?.invoice?.payment;
+  const isPaid = isCompleted || !!order?.invoice?.payment;
   const canCancel = !isCancelled && (!isCompleted || user?.role === "ADMIN");
 
   return (
@@ -143,7 +178,30 @@ export function OrderDetailsDrawer({
                 </span>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                {!isPaid && !isCancelled && (
+                  <>
+                    <Button
+                      size="sm"
+                      onClick={() => setIsPaymentModalOpen(true)}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                      leftIcon={<Receipt className="h-4 w-4" />}
+                    >
+                      Final Bill
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleEditOrder}
+                      className="bg-white/10 text-white border-white/20 hover:bg-white/20 font-bold"
+                      leftIcon={<Edit3 className="h-4 w-4" />}
+                    >
+                      Edit Order
+                    </Button>
+                  </>
+                )}
+
                 {isPaid && (
                   <Button
                     variant="outline"
@@ -381,6 +439,26 @@ export function OrderDetailsDrawer({
           onConfirm={handleConfirmCancel}
           orderNumber={order.orderNumber}
           isPaid={isPaid}
+        />
+      )}
+
+      {/* Payment Processing Modal */}
+      {isPaymentModalOpen && order && (
+        <PaymentModal
+          isOpen={isPaymentModalOpen}
+          onClose={() => setIsPaymentModalOpen(false)}
+          onSuccess={handlePaymentSuccess}
+          order={{
+            id: order.id,
+            orderNumber: order.orderNumber,
+            totalAmount: order.totalAmount,
+            subtotal: order.subtotal,
+            taxAmount: order.taxAmount,
+            discountAmount: order.discountAmount,
+            type: order.type,
+            tableNumber: order.tableNumber || order.table?.tableNumber,
+            customer: order.customer,
+          }}
         />
       )}
 

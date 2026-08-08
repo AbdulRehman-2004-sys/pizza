@@ -95,13 +95,41 @@ export function POSPizzaModal({ isOpen, onClose, product }: POSPizzaModalProps) 
 
         if (itemRes.ok && itemJson.success && itemJson.data) {
           const itemPrices = itemJson.data.itemPrices || [];
-          const activeSizes: SelectedSize[] = itemPrices
-            .filter((ip: any) => ip.size && ip.size.isActive)
-            .map((ip: any) => ({
-              id: ip.size.id,
-              name: ip.size.name,
-              price: ip.price,
-            }));
+
+          // Deduplicate size entries to prevent duplicate Small/Medium/Large/XL buttons
+          const sizeMap = new Map<string, SelectedSize>();
+          const orderRank: Record<string, number> = {
+            small: 1,
+            medium: 2,
+            large: 3,
+            xl: 4,
+          };
+
+          for (const ip of itemPrices) {
+            if (!ip.size || !ip.size.isActive) continue;
+            const rawName = ip.size.name || "";
+            let cleanName = rawName.split("(")[0].trim();
+            const lower = cleanName.toLowerCase();
+
+            if (lower.includes("small")) cleanName = "Small";
+            else if (lower.includes("medium")) cleanName = "Medium";
+            else if (lower.includes("large") && !lower.includes("xl")) cleanName = "Large";
+            else if (lower.includes("xl") || lower.includes("extra large") || lower.includes("family")) cleanName = "XL";
+
+            if (!sizeMap.has(cleanName)) {
+              sizeMap.set(cleanName, {
+                id: ip.size.id,
+                name: cleanName,
+                price: ip.price,
+              });
+            }
+          }
+
+          const activeSizes = Array.from(sizeMap.values()).sort((a, b) => {
+            const rankA = orderRank[a.name.toLowerCase()] || 99;
+            const rankB = orderRank[b.name.toLowerCase()] || 99;
+            return rankA - rankB;
+          });
 
           setSizes(activeSizes);
           if (activeSizes.length > 0) {
@@ -262,7 +290,7 @@ export function POSPizzaModal({ isOpen, onClose, product }: POSPizzaModalProps) 
           )}
 
           {/* 2. Extra Cheese Toggle */}
-          {product.allowExtraCheese && cheeseConfig.isAvailable && (
+          {cheeseConfig.isAvailable && (
             <div className="rounded-2xl bg-amber-50/60 p-3.5 border border-amber-200 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <Sparkles className="h-5 w-5 text-amber-600" />
@@ -279,7 +307,7 @@ export function POSPizzaModal({ isOpen, onClose, product }: POSPizzaModalProps) 
           )}
 
           {/* 3. Extra Toppings Selection Grid */}
-          {product.allowExtraToppings && toppings.length > 0 && (
+          {toppings.length > 0 && (
             <div className="space-y-2">
               <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                 2. Select Extra Toppings
@@ -351,18 +379,16 @@ export function POSPizzaModal({ isOpen, onClose, product }: POSPizzaModalProps) 
           </div>
 
           {/* 5. Special Order Note */}
-          {product.allowNotes && (
-            <div className="space-y-1.5 pt-1">
-              <label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                Special Instructions
-              </label>
-              <Input
-                placeholder={product.notesPlaceholder || "e.g. No onions, extra crispy, cut into 8 slices"}
-                value={itemNotes}
-                onChange={(e) => setItemNotes(e.target.value)}
-              />
-            </div>
-          )}
+          <div className="space-y-1.5 pt-1">
+            <label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+              Special Instructions
+            </label>
+            <Input
+              placeholder={product.notesPlaceholder || "e.g. No onions, extra crispy, cut into 8 slices"}
+              value={itemNotes}
+              onChange={(e) => setItemNotes(e.target.value)}
+            />
+          </div>
         </div>
       )}
     </Modal>

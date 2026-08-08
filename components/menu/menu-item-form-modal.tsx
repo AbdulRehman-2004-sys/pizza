@@ -62,7 +62,6 @@ export function MenuItemFormModal({
   });
 
   const isAvailableValue = watch("isAvailable");
-  const imageValue = watch("image");
 
   useEffect(() => {
     if (initialData) {
@@ -71,7 +70,7 @@ export function MenuItemFormModal({
         name: initialData.name,
         description: initialData.description || "",
         basePrice: initialData.basePrice,
-        image: initialData.image || null,
+        image: null,
         isAvailable: initialData.isAvailable,
       });
     } else {
@@ -126,7 +125,7 @@ export function MenuItemFormModal({
       isOpen={isOpen}
       onClose={onClose}
       title={isEditing ? `Edit ${initialData.name}` : "Add New Menu Item"}
-      description="Configure product details, category, pricing, and image upload"
+      description="Configure product details, category, pricing, and availability"
       size="lg"
       footer={
         <>
@@ -156,22 +155,13 @@ export function MenuItemFormModal({
           />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Input
-            label="Base Price (Rs.)"
-            type="number"
-            placeholder="1899"
-            error={errors.basePrice?.message}
-            {...register("basePrice")}
-          />
-
-          <ImageUpload
-            label="Item Image"
-            folder="menu-items"
-            value={imageValue}
-            onChange={(url) => setValue("image", url)}
-          />
-        </div>
+        <Input
+          label="Base Price (Rs.)"
+          type="number"
+          placeholder="1000"
+          error={errors.basePrice?.message}
+          {...register("basePrice")}
+        />
 
         <Textarea
           label="Description"

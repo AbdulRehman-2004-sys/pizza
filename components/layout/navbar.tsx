@@ -9,9 +9,13 @@ import { SidebarContent } from "./sidebar";
 import { Button } from "@/components/ui/button";
 import { Menu, Bell, Clock, ShoppingCart, CheckCircle2, Utensils } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCartStore } from "@/store/use-cart-store";
 import { toast } from "sonner";
 
 export function Navbar() {
+  const router = useRouter();
+  const clearCart = useCartStore((state) => state.clearCart);
   const { isSidebarOpen, setSidebarOpen } = useUI();
   const [timeString, setTimeString] = useState<string>("");
   const [readyOrders, setReadyOrders] = useState<any[]>([]);
@@ -91,11 +95,17 @@ export function Navbar() {
         </div>
 
         {/* Quick Order Button */}
-        <Link href="/pos">
-          <Button size="sm" className="hidden sm:inline-flex" leftIcon={<ShoppingCart className="h-4 w-4" />}>
-            New Order
-          </Button>
-        </Link>
+        <Button
+          size="sm"
+          onClick={() => {
+            clearCart();
+            router.push("/pos");
+          }}
+          className="hidden sm:inline-flex"
+          leftIcon={<ShoppingCart className="h-4 w-4" />}
+        >
+          New Order
+        </Button>
 
         {/* Dynamic Ready Notification Bell */}
         <div className="relative">
@@ -154,11 +164,11 @@ export function Navbar() {
 
               <div className="pt-2 border-t border-slate-100 flex justify-end">
                 <Link
-                  href="/kitchen"
+                  href="/orders"
                   onClick={() => setIsPopoverOpen(false)}
                   className="text-xs font-bold text-pizza-600 hover:text-pizza-700"
                 >
-                  Go to Kitchen Display →
+                  Go to Order Management →
                 </Link>
               </div>
             </div>

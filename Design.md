@@ -9,13 +9,15 @@ The Pizza Shop POS System UI is designed around **speed, clarity, tactile feedba
 
 ---
 
-## 2. Color Palette
+## 2. Color Palette & Action Buttons
 ```
 ┌─────────────────┬─────────────────┬──────────────────────────────────────────┐
 │ Token           │ Hex / Class     │ Usage Purpose                            │
 ├─────────────────┼─────────────────┼──────────────────────────────────────────┤
 │ Brand Primary   │ #F97316 (orange)│ Primary CTA buttons, active state highlights│
 │ Brand Accent    │ #E11D48 (crimson│ Critical highlights, branding accents     │
+│ KOT Action      │ #F97316 (orange)│ KOT kitchen slip trigger button          │
+│ Final Bill CTA  │ #059669 (emerald│ Final billing and payment trigger button │
 │ Sidebar Dark    │ #0F172A (slate) │ Primary navigation sidebar background    │
 │ Sidebar Hover   │ #1E293B (slate) │ Active/hover navigation items            │
 │ Main Canvas     │ #F8FAFC (slate) │ Application content background           │
@@ -28,47 +30,23 @@ The Pizza Shop POS System UI is designed around **speed, clarity, tactile feedba
 
 ---
 
-## 3. Status Badge Color System
+## 3. POS Button Specification
+- **`KOT Button`**: `bg-pizza-500 hover:bg-pizza-600 text-white font-black text-sm px-4 py-3 rounded-xl shadow-lg shadow-pizza-500/25 active:scale-[0.98]`
+- **`FINAL BILL Button`**: `bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm px-4 py-3 rounded-xl shadow-lg shadow-emerald-600/25 active:scale-[0.98]`
+
+---
+
+## 4. Status Badge Color System
 - **`PENDING`**: Amber Badge (`bg-amber-50 text-amber-700 border-amber-200`)
 - **`KITCHEN`**: Blue Badge (`bg-blue-50 text-blue-700 border-blue-200`)
 - **`READY`**: Emerald Badge (`bg-emerald-50 text-emerald-700 border-emerald-200`)
 - **`COMPLETED`**: Zinc Badge (`bg-zinc-100 text-zinc-700 border-zinc-200`)
 - **`CANCELLED`**: Rose Badge (`bg-rose-50 text-rose-700 border-rose-200`)
+- **`SENT KOT ITEM`**: Blue Pill (`bg-blue-100 text-blue-800 text-[9px] font-extrabold px-1.5 py-0.5 rounded`)
+- **`UNSENT KOT ITEM`**: Amber Pill (`bg-amber-100 text-amber-800 text-[9px] font-extrabold px-1.5 py-0.5 rounded`)
 
 ---
 
-## 4. Typography & Spacing System
-- **Primary Font**: Sans-Serif (`Inter`, `system-ui`, `-apple-system`, `sans-serif`)
-- **Heading Sizes**:
-  - `H1` (Page Title): `text-2xl font-bold tracking-tight text-slate-900`
-  - `H2` (Card / Section Header): `text-lg font-semibold text-slate-900`
-  - `H3` (Subtext): `text-sm font-medium text-slate-700`
-- **Body Sizes**:
-  - Regular Body: `text-sm text-slate-600`
-  - Caption / Small: `text-xs text-slate-500`
-
----
-
-## 5. UI Primitives & Components Specification
-
-### Buttons
-- **Primary Button**: `bg-pizza-500 hover:bg-pizza-600 text-white font-medium px-4 py-2.5 rounded-xl shadow-sm active:scale-[0.98] transition-all`
-- **Secondary Button**: `bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium px-4 py-2.5 rounded-xl transition-all`
-- **Danger Button**: `bg-rose-600 hover:bg-rose-700 text-white font-medium px-4 py-2.5 rounded-xl shadow-sm transition-all`
-- **Outline Button**: `border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium px-4 py-2.5 rounded-xl transition-all`
-
-### Input Fields
-- `w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 shadow-sm focus:border-pizza-500 focus:outline-none focus:ring-2 focus:ring-pizza-500/20 placeholder:text-slate-400 transition-all`
-
-### Dashboard Metric Cards
-- `bg-white rounded-2xl p-5 border border-slate-200/80 shadow-soft transition-all hover:shadow-md hover:border-slate-300`
-
-### Tables
-- Modern clean borderless content table with `border-b border-slate-100` rows, `bg-slate-50/70 text-slate-500 uppercase tracking-wider text-xs font-semibold` header, and hoverable table rows `hover:bg-slate-50/60 transition-colors`.
-
----
-
-## 6. Responsive Breakpoints
-- **Desktop (`lg` >= 1024px)**: Full multi-column dashboard layout with persistent dark sidebar.
-- **Tablet (`md` >= 768px & < 1024px)**: Collapsible sidebar layout optimized for counter touchscreens.
-- **Mobile (`sm` < 768px)**: Slide-over drawer navigation overlay triggered by navbar hamburger toggle.
+## 5. 80mm Thermal Slip Layouts
+- **Kitchen Order Ticket (KOT)**: 80mm narrow thermal width, high-contrast monochrome typography, clear quantity badges (`2x`), item sizes, extra cheese, toppings, and special instructions. Excludes subtotal, tax, discount, grand total, and payment info.
+- **Customer Final Receipt**: 80mm thermal width, restaurant header, invoice #, order #, date/time, cashier name, order type & table #, itemized prices, subtotal, tax, discount, grand total, payment method, and receipt footer message.

@@ -1,4 +1,4 @@
-import prisma from "@/lib/prisma";
+import prisma, { safeDbQuery } from "@/lib/prisma";
 import { OrderQueryParams, CancelOrderInput } from "@/validators/order";
 import { OrderStatus, OrderType, Role } from "@prisma/client";
 
@@ -101,17 +101,22 @@ export async function getOrders(params: OrderQueryParams) {
         items: {
           select: {
             id: true,
+            productId: true,
             productName: true,
+            sizeId: true,
             sizeName: true,
             extraCheese: true,
+            cheesePrice: true,
             selectedToppings: true,
             itemNotes: true,
             quantity: true,
+            sentQuantity: true,
             unitPrice: true,
             totalPrice: true,
           },
         },
-        kitchenOrder: {
+        kitchenOrders: {
+          orderBy: { createdAt: "desc" },
           select: {
             id: true,
             kotNumber: true,
@@ -119,6 +124,8 @@ export async function getOrders(params: OrderQueryParams) {
             startedAt: true,
             readyAt: true,
             completedAt: true,
+            createdAt: true,
+            items: true,
           },
         },
       },
@@ -149,8 +156,10 @@ export async function getOrderById(orderId: string) {
       cashier: { select: { id: true, name: true, email: true, role: true } },
       cancelledBy: { select: { id: true, name: true, email: true, role: true } },
       items: true,
-      kitchenOrder: {
+      kitchenOrders: {
+        orderBy: { createdAt: "desc" },
         include: {
+          items: true,
           statusHistory: {
             orderBy: { createdAt: "desc" },
             include: {
@@ -188,7 +197,7 @@ export async function cancelOrder(
   const order = await prisma.order.findUnique({
     where: { id: orderId },
     include: {
-      kitchenOrder: true,
+      kitchenOrders: true,
     },
   });
 
@@ -212,43 +221,48 @@ export async function cancelOrder(
     if (fallback) validUserId = fallback.id;
   }
 
-  return prisma.$transaction(async (tx) => {
-    // 1. Update Order status & audit fields
-    const updatedOrder = await tx.order.update({
-      where: { id: orderId },
-      data: {
-        status: OrderStatus.CANCELLED,
-        cancellationReason: reason,
-        cancelledAt: new Date(),
-        cancelledById: validUserId,
-      },
-    });
-
-    // 2. Update KitchenOrder status if present
-    if (order.kitchenOrder) {
-      await tx.kitchenOrder.update({
-        where: { id: order.kitchenOrder.id },
-        data: {
-          status: OrderStatus.CANCELLED,
-          statusHistory: {
-            create: {
-              status: OrderStatus.CANCELLED,
-              changedById: validUserId,
-            },
+  return safeDbQuery(async () => {
+    return prisma.$transaction(
+      async (tx) => {
+        // 1. Update Order status & audit fields
+        const updatedOrder = await tx.order.update({
+          where: { id: orderId },
+          data: {
+            status: OrderStatus.CANCELLED,
+            cancellationReason: reason,
+            cancelledAt: new Date(),
+            cancelledById: validUserId,
           },
-        },
-      });
-    }
+        });
 
-    // 3. Release Dining Table to AVAILABLE if DINE_IN
-    if (order.type === OrderType.DINE_IN && order.tableId) {
-      await tx.table.update({
-        where: { id: order.tableId },
-        data: { status: "AVAILABLE" },
-      });
-    }
+        // 2. Update KitchenOrders status if present
+        for (const kot of order.kitchenOrders) {
+          await tx.kitchenOrder.update({
+            where: { id: kot.id },
+            data: {
+              status: OrderStatus.CANCELLED,
+              statusHistory: {
+                create: {
+                  status: OrderStatus.CANCELLED,
+                  changedById: validUserId,
+                },
+              },
+            },
+          });
+        }
 
-    return updatedOrder;
+        // 3. Release Dining Table to AVAILABLE if DINE_IN
+        if (order.type === OrderType.DINE_IN && order.tableId) {
+          await tx.table.update({
+            where: { id: order.tableId },
+            data: { status: "AVAILABLE" },
+          });
+        }
+
+        return updatedOrder;
+      },
+      { maxWait: 10000, timeout: 30000 }
+    );
   });
 }
 
@@ -314,68 +328,314 @@ export async function createPOSOrder(data: any, cashierId: string) {
     if (fallback) validCashierId = fallback.id;
   }
 
-  return prisma.$transaction(async (tx) => {
-    const count = await tx.order.count();
-    const orderNumber = `ORD-${1001 + count}`;
+  return safeDbQuery(async () => {
+    return prisma.$transaction(
+      async (tx) => {
+        // If orderId is provided, update existing order in place
+        if (data.orderId) {
+          const existingOrder = await tx.order.findUnique({
+            where: { id: data.orderId },
+            include: { items: true },
+          });
 
-    const order = await tx.order.create({
-      data: {
-        orderNumber,
-        status: OrderStatus.PENDING,
-        type: data.type,
-        subtotal: calculatedSubtotal,
-        taxAmount: calculatedTax,
-        discountAmount: calculatedDiscount,
-        totalAmount: calculatedTotal,
-        customerNotes: data.customerNotes || null,
-        tableId: data.type === OrderType.DINE_IN ? data.tableId || null : null,
-        tableNumber: data.type === OrderType.DINE_IN ? data.tableNumber || null : null,
-        customerId: customerId || null,
-        cashierId: validCashierId,
-        items: {
-          create: data.items.map((item: any) => ({
-            productId: item.productId || null,
-            productName: item.productName,
-            sizeId: item.sizeId || null,
-            sizeName: item.sizeName || null,
-            extraCheese: item.extraCheese || false,
-            cheesePrice: item.cheesePrice || 0,
-            selectedToppings: item.selectedToppings ? JSON.stringify(item.selectedToppings) : null,
-            itemNotes: item.itemNotes || null,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            totalPrice: item.totalPrice,
-          })),
-        },
-      },
-      include: { items: true, customer: true, table: true },
-    });
+          if (existingOrder) {
+            // Delete items that are no longer in incoming list (if unsent)
+            const incomingItemKeys = new Set(
+              data.items.map((i: any) => `${i.productId}_${i.sizeId || "nosize"}_${i.extraCheese}_${i.itemNotes || ""}`)
+            );
 
-    const kotCount = await tx.kitchenOrder.count();
-    const kotNumber = `KOT-${1001 + kotCount}`;
+            for (const existingItem of existingOrder.items) {
+              const key = `${existingItem.productId}_${existingItem.sizeId || "nosize"}_${existingItem.extraCheese}_${existingItem.itemNotes || ""}`;
+              if (!incomingItemKeys.has(key) && existingItem.sentQuantity === 0) {
+                await tx.orderItem.delete({ where: { id: existingItem.id } });
+              }
+            }
 
-    await tx.kitchenOrder.create({
-      data: {
-        kotNumber,
-        orderId: order.id,
-        status: OrderStatus.PENDING,
-        statusHistory: {
-          create: {
+            // Upsert incoming items
+            for (const item of data.items) {
+              const existingItem = existingOrder.items.find(
+                (i) =>
+                  i.productId === (item.productId || null) &&
+                  i.sizeId === (item.sizeId || null) &&
+                  i.extraCheese === (item.extraCheese || false) &&
+                  (i.itemNotes || "") === (item.itemNotes || "")
+              );
+
+              if (existingItem) {
+                await tx.orderItem.update({
+                  where: { id: existingItem.id },
+                  data: {
+                    quantity: item.quantity,
+                    unitPrice: item.unitPrice,
+                    totalPrice: item.totalPrice,
+                  },
+                });
+              } else {
+                await tx.orderItem.create({
+                  data: {
+                    orderId: existingOrder.id,
+                    productId: item.productId || null,
+                    productName: item.productName,
+                    sizeId: item.sizeId || null,
+                    sizeName: item.sizeName || null,
+                    extraCheese: item.extraCheese || false,
+                    cheesePrice: item.cheesePrice || 0,
+                    selectedToppings: item.selectedToppings ? JSON.stringify(item.selectedToppings) : undefined,
+                    itemNotes: item.itemNotes || null,
+                    quantity: item.quantity,
+                    sentQuantity: 0,
+                    unitPrice: item.unitPrice,
+                    totalPrice: item.totalPrice,
+                  },
+                });
+              }
+            }
+
+            const updatedOrder = await tx.order.update({
+              where: { id: data.orderId },
+              data: {
+                type: data.type,
+                subtotal: calculatedSubtotal,
+                taxAmount: calculatedTax,
+                discountAmount: calculatedDiscount,
+                totalAmount: calculatedTotal,
+                customerNotes: data.customerNotes || null,
+                tableId: data.type === OrderType.DINE_IN ? data.tableId || null : null,
+                tableNumber: data.type === OrderType.DINE_IN ? data.tableNumber || null : null,
+                customerId: customerId || null,
+              },
+              include: { items: true, customer: true, table: true, kitchenOrders: true },
+            });
+
+            if (data.type === OrderType.DINE_IN && data.tableId) {
+              await tx.table.update({
+                where: { id: data.tableId },
+                data: { status: "OCCUPIED" },
+              });
+            }
+
+            return updatedOrder;
+          }
+        }
+
+        // Otherwise create brand new Order
+        const count = await tx.order.count();
+        const orderNumber = `ORD-${1001 + count}`;
+
+        const order = await tx.order.create({
+          data: {
+            orderNumber,
             status: OrderStatus.PENDING,
-            changedById: validCashierId,
+            type: data.type,
+            subtotal: calculatedSubtotal,
+            taxAmount: calculatedTax,
+            discountAmount: calculatedDiscount,
+            totalAmount: calculatedTotal,
+            customerNotes: data.customerNotes || null,
+            tableId: data.type === OrderType.DINE_IN ? data.tableId || null : null,
+            tableNumber: data.type === OrderType.DINE_IN ? data.tableNumber || null : null,
+            customerId: customerId || null,
+            cashierId: validCashierId,
+            items: {
+              create: data.items.map((item: any) => ({
+                productId: item.productId || null,
+                productName: item.productName,
+                sizeId: item.sizeId || null,
+                sizeName: item.sizeName || null,
+                extraCheese: item.extraCheese || false,
+                cheesePrice: item.cheesePrice || 0,
+                selectedToppings: item.selectedToppings ? JSON.stringify(item.selectedToppings) : undefined,
+                itemNotes: item.itemNotes || null,
+                quantity: item.quantity,
+                sentQuantity: 0,
+                unitPrice: item.unitPrice,
+                totalPrice: item.totalPrice,
+              })),
+            },
           },
-        },
+          include: { items: true, customer: true, table: true, kitchenOrders: true },
+        });
+
+        if (data.type === OrderType.DINE_IN && data.tableId) {
+          await tx.table.update({
+            where: { id: data.tableId },
+            data: { status: "OCCUPIED" },
+          });
+        }
+
+        return order;
       },
-    });
-
-    if (data.type === OrderType.DINE_IN && data.tableId) {
-      await tx.table.update({
-        where: { id: data.tableId },
-        data: { status: "OCCUPIED" },
-      });
-    }
-
-    return order;
+      { maxWait: 15000, timeout: 60000 }
+    );
   });
 }
+
+export async function generateKOTForOrder(orderId: string, cashierId: string) {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      items: true,
+      table: true,
+      customer: true,
+      cashier: { select: { id: true, name: true, email: true } },
+      kitchenOrders: true,
+    },
+  });
+
+  if (!order) {
+    throw new Error("Order not found.");
+  }
+
+  // Identify unsent items/quantities
+  const unsentItems = order.items.filter((item) => item.quantity > item.sentQuantity);
+
+  if (unsentItems.length === 0) {
+    throw new Error("No new items to send to kitchen.");
+  }
+
+  let validCashierId = cashierId;
+  const existingUser = await prisma.user.findUnique({ where: { id: cashierId } });
+  if (!existingUser) {
+    const fallback = await prisma.user.findFirst({ where: { isActive: true } });
+    if (fallback) validCashierId = fallback.id;
+  }
+
+  return safeDbQuery(async () => {
+    return prisma.$transaction(
+      async (tx) => {
+        const totalKotCount = await tx.kitchenOrder.count();
+        const kotNumber = `KOT-${1001 + totalKotCount}`;
+
+        const kitchenOrder = await tx.kitchenOrder.create({
+          data: {
+            kotNumber,
+            orderId: order.id,
+            status: OrderStatus.PENDING,
+            statusHistory: {
+              create: {
+                status: OrderStatus.PENDING,
+                changedById: validCashierId,
+              },
+            },
+            items: {
+              create: unsentItems.map((item) => {
+                const unsentQty = item.quantity - item.sentQuantity;
+                return {
+                  orderItemId: item.id,
+                  productName: item.productName,
+                  sizeName: item.sizeName,
+                  extraCheese: item.extraCheese,
+                  selectedToppings: item.selectedToppings ? JSON.parse(JSON.stringify(item.selectedToppings)) : undefined,
+                  itemNotes: item.itemNotes,
+                  quantity: unsentQty,
+                };
+              }),
+            },
+          },
+          include: {
+            items: true,
+            order: {
+              include: {
+                table: true,
+                customer: true,
+                cashier: true,
+              },
+            },
+          },
+        });
+
+        // Update sentQuantity for each order item
+        for (const item of unsentItems) {
+          await tx.orderItem.update({
+            where: { id: item.id },
+            data: { sentQuantity: item.quantity },
+          });
+        }
+
+        // Update order status to KITCHEN
+        await tx.order.update({
+          where: { id: order.id },
+          data: { status: OrderStatus.KITCHEN },
+        });
+
+        // Fetch store settings for print header
+        const settings = await tx.restaurantSettings.findFirst();
+
+        return {
+          ...kitchenOrder,
+          restaurantName: settings?.restaurantName || "SliceMaster Pizzeria",
+        };
+      },
+      { maxWait: 15000, timeout: 60000 }
+    );
+  });
+}
+
+export async function deleteOrder(orderId: string) {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      invoice: { include: { payment: true } },
+      kitchenOrders: { include: { items: true, statusHistory: true } },
+      items: true,
+    },
+  });
+
+  if (!order) {
+    throw new Error("Order not found.");
+  }
+
+  return safeDbQuery(async () => {
+    return prisma.$transaction(
+      async (tx) => {
+        // 1. Delete associated payment records if present
+        if (order.invoice?.payment) {
+          await tx.payment.deleteMany({
+            where: { invoiceId: order.invoice.id },
+          });
+        }
+
+        // 2. Delete invoice if present
+        if (order.invoice) {
+          await tx.invoice.delete({
+            where: { id: order.invoice.id },
+          });
+        }
+
+        // 3. Delete kitchen order status histories & items & kitchen orders
+        for (const kot of order.kitchenOrders) {
+          await tx.kitchenStatusHistory.deleteMany({
+            where: { kitchenOrderId: kot.id },
+          });
+          await tx.kitchenOrderItem.deleteMany({
+            where: { kitchenOrderId: kot.id },
+          });
+          await tx.kitchenOrder.delete({
+            where: { id: kot.id },
+          });
+        }
+
+        // 4. Delete order items
+        await tx.orderItem.deleteMany({
+          where: { orderId },
+        });
+
+        // 5. Release dining table if dine-in
+        if (order.tableId) {
+          await tx.table.update({
+            where: { id: order.tableId },
+            data: { status: "AVAILABLE" },
+          });
+        }
+
+        // 6. Delete Order
+        return tx.order.delete({
+          where: { id: orderId },
+        });
+      },
+      { maxWait: 10000, timeout: 30000 }
+    );
+  });
+}
+
 

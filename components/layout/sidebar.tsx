@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
@@ -38,34 +38,14 @@ export const navigationItems: NavItem[] = [
     icon: ShoppingCart,
   },
   {
-    title: "Kitchen Display",
-    href: "/kitchen",
-    icon: ChefHat,
-  },
-  {
-    title: "Billing & Payments",
-    href: "/billing",
-    icon: Receipt,
-  },
-  {
     title: "Order Management",
     href: "/orders",
     icon: FileSpreadsheet,
   },
   {
-    title: "Menu & Items",
-    href: "/menu",
-    icon: UtensilsCrossed,
-  },
-  {
-    title: "Categories",
+    title: "Categories & Items",
     href: "/categories",
     icon: Layers,
-  },
-  {
-    title: "Pizza Config",
-    href: "/pizza-config",
-    icon: Pizza,
   },
   {
     title: "Tables & Seating",
@@ -95,6 +75,27 @@ export const navigationItems: NavItem[] = [
 export function SidebarContent() {
   const pathname = usePathname();
   const { user } = useAuth();
+  const [settings, setSettings] = React.useState<any>(null);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const res = await fetch("/api/settings");
+        const json = await res.json();
+        if (res.ok && json.success && json.data) {
+          setSettings(json.data);
+        }
+      } catch (error) {
+        console.error("Failed to load settings in sidebar:", error);
+      }
+    };
+
+    fetchSettings();
+
+    const handleSettingsUpdate = () => fetchSettings();
+    window.addEventListener("settings-updated", handleSettingsUpdate);
+    return () => window.removeEventListener("settings-updated", handleSettingsUpdate);
+  }, []);
 
   const filteredNav = navigationItems.filter(
     (item) => !item.adminOnly || user?.role === "ADMIN"
@@ -105,12 +106,16 @@ export function SidebarContent() {
       {/* Brand Header - Fixed Top */}
       <div className="shrink-0 p-4 border-b border-slate-800">
         <div className="flex items-center gap-3 px-2 py-1">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-pizza-500 text-white shadow-lg shadow-pizza-500/30">
-            <Pizza className="h-6 w-6" />
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-pizza-500 text-white shadow-lg shadow-pizza-500/30 overflow-hidden">
+            {settings?.logoUrl ? (
+              <img src={settings.logoUrl} alt="Store Logo" className="h-full w-full object-cover" />
+            ) : (
+              <Pizza className="h-6 w-6" />
+            )}
           </div>
-          <div>
-            <h1 className="font-black text-sm tracking-wide text-white leading-tight">
-              SliceMaster Pizza
+          <div className="min-w-0 flex-1">
+            <h1 className="font-black text-sm tracking-wide text-white leading-tight truncate">
+              {settings?.restaurantName || "SliceMaster Pizza"}
             </h1>
             <span className="text-[10px] text-pizza-400 font-bold tracking-wider uppercase">
               POS System v1.0

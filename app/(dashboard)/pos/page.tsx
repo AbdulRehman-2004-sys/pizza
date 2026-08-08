@@ -156,63 +156,72 @@ export default function POSPage() {
               ))}
             </div>
           ) : filteredItems.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-              {filteredItems.map((product) => (
-                <div
-                  key={product.id}
-                  onClick={() => handleProductClick(product)}
-                  className={`group relative rounded-2xl bg-white p-3 border border-slate-200 shadow-soft hover:shadow-md transition-all cursor-pointer flex flex-col justify-between overflow-hidden select-none active:scale-[0.98] ${
-                    !product.isAvailable ? "opacity-60 cursor-not-allowed" : ""
-                  }`}
-                >
-                  <div>
-                    {/* Thumbnail Image */}
-                    <div className="relative h-28 w-full bg-slate-100 rounded-xl overflow-hidden mb-2.5 flex items-center justify-center">
-                      {product.image ? (
-                        <Image
-                          src={product.image}
-                          alt={product.name}
-                          fill
-                          className="object-cover group-hover:scale-105 transition-transform duration-300"
-                        />
-                      ) : (
-                        <Pizza className="h-10 w-10 text-slate-300" />
-                      )}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5">
+              {filteredItems.map((product) => {
+                const isPizza =
+                  product.isCustomizable ||
+                  product.category?.categoryType === "PIZZA" ||
+                  product.category?.name?.toLowerCase().includes("pizza");
 
-                      {/* Status / Type Badge */}
-                      <div className="absolute top-2 left-2 flex gap-1">
-                        {product.isCustomizable && (
-                          <span className="inline-flex items-center gap-1 rounded-md bg-pizza-500/90 backdrop-blur-md px-2 py-0.5 text-[9px] font-extrabold text-white shadow-sm">
+                // Get min price for pizza or basePrice
+                let displayPrice = product.basePrice;
+                if (isPizza && product.itemPrices && product.itemPrices.length > 0) {
+                  const prices = product.itemPrices.map((p: any) => p.price);
+                  displayPrice = Math.min(...prices);
+                }
+
+                return (
+                  <div
+                    key={product.id}
+                    onClick={() => handleProductClick(product)}
+                    className={`group relative rounded-2xl bg-white p-4 border border-slate-200 shadow-soft hover:shadow-md hover:border-pizza-400 transition-all cursor-pointer flex flex-col justify-between overflow-hidden select-none active:scale-[0.98] ${
+                      !product.isAvailable ? "opacity-60 cursor-not-allowed bg-slate-50" : ""
+                    }`}
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[10px] font-extrabold uppercase text-slate-400 truncate">
+                          {product.category?.name || "Menu"}
+                        </span>
+                        {isPizza ? (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-pizza-50 px-2 py-0.5 text-[9px] font-extrabold text-pizza-600">
                             <Sparkles className="h-2.5 w-2.5" />
                             Customizable
                           </span>
-                        )}
-                      </div>
-
-                      {!product.isAvailable && (
-                        <div className="absolute inset-0 bg-slate-900/60 flex items-center justify-center">
-                          <span className="text-[10px] font-bold text-white uppercase bg-rose-600 px-2 py-0.5 rounded-md">
+                        ) : !product.isAvailable ? (
+                          <span className="text-[9px] font-bold text-white uppercase bg-rose-600 px-1.5 py-0.5 rounded">
                             Sold Out
                           </span>
-                        </div>
+                        ) : null}
+                      </div>
+
+                      <h3 className="text-sm font-bold text-slate-900 line-clamp-2 leading-snug group-hover:text-pizza-600 transition-colors">
+                        {product.name}
+                      </h3>
+
+                      {product.description && (
+                        <p className="text-[11px] text-slate-500 line-clamp-2 leading-tight font-normal">
+                          {product.description}
+                        </p>
                       )}
                     </div>
 
-                    <h3 className="text-xs font-bold text-slate-900 line-clamp-2 leading-tight">
-                      {product.name}
-                    </h3>
+                    <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
+                      <div>
+                        {isPizza && (
+                          <span className="text-[10px] font-medium text-slate-400 block leading-none">From</span>
+                        )}
+                        <span className="text-xs font-black text-pizza-600">
+                          {formatCurrency(displayPrice)}
+                        </span>
+                      </div>
+                      <span className="h-8 w-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center group-hover:bg-pizza-500 group-hover:text-white transition-all shadow-sm">
+                        <Plus className="h-4 w-4" />
+                      </span>
+                    </div>
                   </div>
-
-                  <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between">
-                    <span className="text-xs font-black text-pizza-600">
-                      {formatCurrency(product.basePrice)}
-                    </span>
-                    <span className="rounded-lg p-1 bg-slate-100 text-slate-600 group-hover:bg-pizza-500 group-hover:text-white transition-colors">
-                      <Plus className="h-3.5 w-3.5" />
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <EmptyState

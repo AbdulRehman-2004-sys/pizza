@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { getMenuItemById, updateMenuItem, deleteMenuItem } from "@/services/menu-item-service";
-import { menuItemSchema } from "@/validators/menu-item";
+import { menuItemSchema, updateMenuItemSchema } from "@/validators/menu-item";
 import { successResponse, errorResponse } from "@/lib/response";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -34,7 +34,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     }
 
     const body = await request.json();
-    const validation = menuItemSchema.safeParse(body);
+    const validation = updateMenuItemSchema.safeParse(body);
 
     if (!validation.success) {
       return errorResponse("Validation failed", 400, validation.error.errors);

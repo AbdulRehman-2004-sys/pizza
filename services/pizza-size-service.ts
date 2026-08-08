@@ -2,10 +2,34 @@ import prisma from "@/lib/prisma";
 import { PizzaSizeInput } from "@/validators/pizza-config";
 
 export async function getAllPizzaSizes(includeInactive: boolean = true) {
-  return prisma.pizzaSize.findMany({
+  let sizes = await prisma.pizzaSize.findMany({
     where: includeInactive ? undefined : { isActive: true },
     orderBy: { displayOrder: "asc" },
   });
+
+  const hasXL = sizes.some((s) => s.name.toLowerCase() === "xl" || s.name.toLowerCase() === "extra large");
+
+  if (sizes.length === 0 || !hasXL) {
+    const defaultSizes = [
+      { name: "Small", displayOrder: 1 },
+      { name: "Medium", displayOrder: 2 },
+      { name: "Large", displayOrder: 3 },
+      { name: "XL", displayOrder: 4 },
+    ];
+    for (const d of defaultSizes) {
+      await prisma.pizzaSize.upsert({
+        where: { name: d.name },
+        update: {},
+        create: { name: d.name, displayOrder: d.displayOrder },
+      });
+    }
+    sizes = await prisma.pizzaSize.findMany({
+      where: includeInactive ? undefined : { isActive: true },
+      orderBy: { displayOrder: "asc" },
+    });
+  }
+
+  return sizes;
 }
 
 export async function getPizzaSizeById(id: string) {

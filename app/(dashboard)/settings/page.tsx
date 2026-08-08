@@ -90,6 +90,9 @@ export default function SettingsPage() {
       }
 
       toast.success("Restaurant settings saved successfully!");
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("settings-updated"));
+      }
     } catch (error) {
       console.error("Save settings error:", error);
       toast.error("Network error saving settings");

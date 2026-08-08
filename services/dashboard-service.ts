@@ -3,8 +3,15 @@ import { RecentOrderItem } from "@/types/dashboard";
 
 export async function getDashboardStats() {
   try {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
     const [
       orders,
+      todayOrdersCount,
+      pendingKitchenCount,
+      completedOrdersCount,
+      totalSalesAggregate,
       totalCategories,
       totalMenuItems,
       totalTables,
@@ -20,6 +27,19 @@ export async function getDashboardStats() {
           items: true,
         },
       }),
+      prisma.order.count({
+        where: { createdAt: { gte: todayStart } },
+      }),
+      prisma.order.count({
+        where: { status: { in: ["KITCHEN", "PENDING", "READY"] } },
+      }),
+      prisma.order.count({
+        where: { status: "COMPLETED", createdAt: { gte: todayStart } },
+      }),
+      prisma.order.aggregate({
+        _sum: { totalAmount: true },
+        where: { status: "COMPLETED", createdAt: { gte: todayStart } },
+      }),
       prisma.category.count(),
       prisma.menuItem.count(),
       prisma.table.count(),
@@ -27,11 +47,7 @@ export async function getDashboardStats() {
       prisma.table.count({ where: { status: "OCCUPIED" } }),
     ]);
 
-    const totalSales = orders.reduce((sum, order) => sum + order.totalAmount, 0);
-    const pendingKitchenCount = orders.filter(
-      (o) => o.status === "KITCHEN" || o.status === "PENDING"
-    ).length;
-    const completedOrdersCount = orders.filter((o) => o.status === "COMPLETED").length;
+    const totalSales = totalSalesAggregate._sum.totalAmount || 0;
 
     const recentOrders: RecentOrderItem[] = orders.map((order) => ({
       id: order.id,
@@ -41,55 +57,38 @@ export async function getDashboardStats() {
       status: order.status,
       totalAmount: order.totalAmount,
       itemsCount: order.items.reduce((sum, item) => sum + item.quantity, 0),
-      cashierName: order.cashier.name,
+      cashierName: order.cashier?.name || "Cashier",
       createdAt: order.createdAt.toISOString(),
     }));
 
-    const salesTrend = [
-      { time: "10:00 AM", sales: 1200, orders: 4 },
-      { time: "12:00 PM", sales: 4800, orders: 14 },
-      { time: "02:00 PM", sales: 3100, orders: 9 },
-      { time: "04:00 PM", sales: 2200, orders: 6 },
-      { time: "06:00 PM", sales: 6500, orders: 19 },
-      { time: "08:00 PM", sales: 8900, orders: 24 },
-      { time: "10:00 PM", sales: 3400, orders: 10 },
-    ];
-
-    const categoryBreakdown = [
-      { name: "Pizzas", value: 68, color: "#f97316" },
-      { name: "Sides & Wings", value: 16, color: "#e11d48" },
-      { name: "Beverages", value: 10, color: "#3b82f6" },
-      { name: "Desserts", value: 6, color: "#10b981" },
-    ];
-
     return {
-      todaySales: totalSales > 0 ? totalSales : 18540,
-      todaySalesChange: "+14.8%",
-      todayOrdersCount: orders.length > 0 ? orders.length : 42,
-      pendingKitchenCount: pendingKitchenCount > 0 ? pendingKitchenCount : 5,
-      completedOrdersCount: completedOrdersCount > 0 ? completedOrdersCount : 37,
+      todaySales: totalSales,
+      todaySalesChange: "+0%",
+      todayOrdersCount,
+      pendingKitchenCount,
+      completedOrdersCount,
       totalCategories,
       totalMenuItems,
       totalTables,
       availableTables,
       occupiedTables,
       recentOrders,
-      salesTrend,
-      categoryBreakdown,
+      salesTrend: [],
+      categoryBreakdown: [],
     };
   } catch (error) {
     console.error("Error in getDashboardStats:", error);
     return {
-      todaySales: 18540,
-      todaySalesChange: "+14.8%",
-      todayOrdersCount: 42,
-      pendingKitchenCount: 5,
-      completedOrdersCount: 37,
-      totalCategories: 4,
-      totalMenuItems: 6,
-      totalTables: 5,
-      availableTables: 3,
-      occupiedTables: 1,
+      todaySales: 0,
+      todaySalesChange: "0%",
+      todayOrdersCount: 0,
+      pendingKitchenCount: 0,
+      completedOrdersCount: 0,
+      totalCategories: 0,
+      totalMenuItems: 0,
+      totalTables: 0,
+      availableTables: 0,
+      occupiedTables: 0,
       recentOrders: [],
       salesTrend: [],
       categoryBreakdown: [],

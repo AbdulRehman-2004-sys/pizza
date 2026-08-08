@@ -1,12 +1,18 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { useCartStore } from "@/store/use-cart-store";
 import { OrderFilters } from "@/components/orders/order-filters";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import { OrderDetailsDrawer } from "@/components/orders/order-details-drawer";
+import { PaymentModal } from "@/components/billing/payment-modal";
+import { ThermalReceipt } from "@/components/billing/thermal-receipt";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { formatCurrency } from "@/lib/utils";
 import {
   ShoppingBag,
@@ -18,14 +24,19 @@ import {
   Receipt,
   FileSpreadsheet,
   CheckCircle2,
-  XCircle,
   ChevronLeft,
   ChevronRight,
+  Edit3,
+  Printer,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 
 export default function OrderManagementPage() {
+  const router = useRouter();
+  const loadOrderIntoCart = useCartStore((state) => state.loadOrderIntoCart);
+
   const [activeTab, setActiveTab] = useState<"ACTIVE" | "COMPLETED" | "HISTORY">("ACTIVE");
 
   // Filter & Search States
@@ -54,6 +65,15 @@ export default function OrderManagementPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+
+  // Selection & Bulk Delete state
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
+  // Billing & Receipt Modal States
+  const [orderForPayment, setOrderForPayment] = useState<any | null>(null);
+  const [activeFinalReceipt, setActiveFinalReceipt] = useState<any | null>(null);
 
   // Compute date range based on shortcut selection
   const computeDatesFromShortcut = (shortcut: string) => {
@@ -90,23 +110,21 @@ export default function OrderManagementPage() {
         params.set("sortBy", sortBy);
         params.set("sortOrder", sortOrder);
 
-        if (searchQuery) params.set("search", searchQuery);
+        if (searchQuery.trim()) params.set("search", searchQuery.trim());
         if (selectedType !== "ALL") params.set("type", selectedType);
 
-        // Tab-specific filters
-        if (activeTab === "ACTIVE") {
+        // Map tab or selected status filter
+        if (selectedStatus !== "ALL") {
+          params.set("status", selectedStatus);
+        } else if (activeTab === "ACTIVE") {
           params.set("activeOnly", "true");
         } else if (activeTab === "COMPLETED") {
-          params.set("completedOnly", "true");
-        } else if (selectedStatus !== "ALL") {
-          params.set("status", selectedStatus);
+          params.set("status", "COMPLETED");
         }
 
-        // Date Range logic
         let effectiveStart = startDate;
         let effectiveEnd = endDate;
-
-        if (dateRangeShortcut !== "ALL" && dateRangeShortcut !== "CUSTOM") {
+        if (dateRangeShortcut !== "CUSTOM") {
           const computed = computeDatesFromShortcut(dateRangeShortcut);
           effectiveStart = computed.start;
           effectiveEnd = computed.end;
@@ -119,49 +137,38 @@ export default function OrderManagementPage() {
         const json = await res.json();
 
         if (res.ok && json.success) {
-          setOrders(json.data);
+          setOrders(json.data || []);
           if (json.pagination) {
             setPagination(json.pagination);
           }
         } else {
-          if (!silent) toast.error(json.error || "Failed to fetch orders");
+          toast.error(json.error || "Failed to load orders");
         }
       } catch (error) {
         console.error("Fetch orders error:", error);
-        if (!silent) toast.error("Network error loading orders");
+        toast.error("Network error fetching orders");
       } finally {
-        if (!silent) setIsLoading(false);
+        setIsLoading(false);
       }
     },
     [
-      activeTab,
       page,
       limit,
+      sortBy,
+      sortOrder,
       searchQuery,
       selectedType,
       selectedStatus,
+      activeTab,
       dateRangeShortcut,
       startDate,
       endDate,
-      sortBy,
-      sortOrder,
     ]
   );
 
   useEffect(() => {
-    fetchOrders(false);
-    // Auto polling for Active Orders tab every 10 seconds
-    if (activeTab === "ACTIVE") {
-      const interval = setInterval(() => fetchOrders(true), 10000);
-      return () => clearInterval(interval);
-    }
-  }, [fetchOrders, activeTab]);
-
-  // Reset Page to 1 whenever filters change
-  const handleFilterChange = (setter: (val: any) => void, value: any) => {
-    setPage(1);
-    setter(value);
-  };
+    fetchOrders();
+  }, [fetchOrders]);
 
   const handleResetFilters = () => {
     setSearchQuery("");
@@ -175,6 +182,217 @@ export default function OrderManagementPage() {
     setPage(1);
   };
 
+  const handleFilterChange = (setter: (val: any) => void, val: any) => {
+    setter(val);
+    setPage(1);
+  };
+
+  const isAllSelected = orders.length > 0 && selectedOrderIds.length === orders.length;
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedOrderIds(orders.map((o) => o.id));
+    } else {
+      setSelectedOrderIds([]);
+    }
+  };
+
+  const handleSelectOne = (id: string, checked: boolean) => {
+    if (checked) {
+      setSelectedOrderIds((prev) => [...prev, id]);
+    } else {
+      setSelectedOrderIds((prev) => prev.filter((item) => item !== id));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedOrderIds.length === 0) return;
+    try {
+      setIsBulkDeleting(true);
+      const res = await fetch("/api/orders", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds: selectedOrderIds }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        toast.error(json.error || "Failed to delete orders");
+        return;
+      }
+      toast.success(`${selectedOrderIds.length} order(s) deleted successfully!`);
+      setSelectedOrderIds([]);
+      setShowBulkDeleteConfirm(false);
+      fetchOrders(false);
+    } catch (error) {
+      console.error("Bulk delete error:", error);
+      toast.error("Network error deleting orders");
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
+  // Edit Order Action: Load back into Cart
+  const handleEditOrder = (order: any) => {
+    if (!order.items || order.items.length === 0) {
+      toast.error("Order has no items to edit");
+      return;
+    }
+
+    const cartItemsToLoad = order.items.map((item: any) => {
+      let selectedSize = undefined;
+      let cheesePrice = 0;
+
+      if (item.selectedSize) {
+        try {
+          selectedSize =
+            typeof item.selectedSize === "string"
+              ? JSON.parse(item.selectedSize)
+              : item.selectedSize;
+        } catch {
+          selectedSize = undefined;
+        }
+      }
+
+      if (item.hasExtraCheese) {
+        cheesePrice = 250;
+      }
+
+      let parsedToppings: any[] = [];
+      if (item.selectedToppings) {
+        try {
+          parsedToppings =
+            typeof item.selectedToppings === "string"
+              ? JSON.parse(item.selectedToppings)
+              : item.selectedToppings;
+        } catch {
+          parsedToppings = [];
+        }
+      }
+
+      let parsedItemDiscount = undefined;
+      if (item.itemDiscount) {
+        try {
+          parsedItemDiscount =
+            typeof item.itemDiscount === "string"
+              ? JSON.parse(item.itemDiscount)
+              : item.itemDiscount;
+        } catch {
+          parsedItemDiscount = undefined;
+        }
+      }
+
+      const toppingIds = parsedToppings.map((t: any) => t.id).sort().join("-");
+      const cartItemId = `${item.menuItemId}_${selectedSize?.id || "nosize"}_${item.hasExtraCheese ? "cheese" : "nocheese"}_${toppingIds}_${parsedItemDiscount?.type || "none"}_${parsedItemDiscount?.value || 0}_${(item.itemNotes || "").trim()}`;
+
+      return {
+        cartItemId,
+        productId: item.menuItemId,
+        name: item.menuItem?.name || item.name || "Menu Item",
+        image: item.menuItem?.image || null,
+        basePrice: item.unitPrice,
+        size: selectedSize,
+        extraCheese: !!item.hasExtraCheese,
+        cheesePrice,
+        toppings: parsedToppings,
+        itemNotes: item.itemNotes || undefined,
+        itemDiscount: parsedItemDiscount,
+        unitPrice: item.unitPrice,
+        quantity: item.quantity,
+        totalPrice: item.totalPrice,
+      };
+    });
+
+    loadOrderIntoCart(order);
+    toast.success(`Loaded Order #${order.orderNumber} into cart!`);
+    router.push("/pos");
+  };
+
+  // Open Payment Modal for Unpaid Orders
+  const handleOpenPayment = (order: any) => {
+    setOrderForPayment({
+      id: order.id,
+      orderNumber: order.orderNumber,
+      totalAmount: order.totalAmount,
+      subtotal: order.subtotal,
+      taxAmount: order.taxAmount,
+      discountAmount: order.discountAmount,
+      type: order.type,
+      tableNumber: order.tableNumber || order.table?.tableNumber,
+      customer: order.customer,
+    });
+  };
+
+  // Direct Thermal Receipt Fetch & Print Action
+  const handlePrintReceipt = async (orderId: string) => {
+    try {
+      const res = await fetch(`/api/billing/invoices/${orderId}`);
+      const json = await res.json();
+      if (res.ok && json.success) {
+        setActiveFinalReceipt(json.data);
+      } else {
+        toast.error(json.error || "Failed to load thermal receipt");
+      }
+    } catch (error) {
+      console.error("Fetch receipt error:", error);
+      toast.error("Network error loading thermal receipt");
+    }
+  };
+
+  // Delete Order Record Handler
+  const handleDeleteOrder = async (orderId: string, orderNumber: string) => {
+    if (!confirm(`Are you sure you want to delete Order #${orderNumber}? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/orders/${orderId}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        toast.success(`Order #${orderNumber} deleted successfully.`);
+        setSelectedOrderIds((prev) => prev.filter((id) => id !== orderId));
+        fetchOrders(false);
+      } else {
+        toast.error(json.error || "Failed to delete order");
+      }
+    } catch (error) {
+      console.error("Delete order error:", error);
+      toast.error("Network error deleting order");
+    }
+  };
+
+  // Handle Payment Confirmation Success
+  const handlePaymentSuccess = async (paymentResult: any) => {
+    const targetOrderId =
+      paymentResult?.order?.id || paymentResult?.orderId || paymentResult?.invoice?.orderId;
+
+    if (targetOrderId) {
+      try {
+        const res = await fetch(`/api/orders/${targetOrderId}`);
+        const json = await res.json();
+        const settingsRes = await fetch("/api/settings");
+        const settingsJson = await settingsRes.json();
+
+        if (res.ok && json.success) {
+          setActiveFinalReceipt({
+            settings: settingsJson.data || {
+              restaurantName: "SliceMaster Pizzeria",
+              address: "Main Boulevard, Gulberg III, Lahore, Pakistan",
+              phone: "+92 42 111 749 922",
+              receiptFooter: "Thank you for dining with SliceMaster!",
+            },
+            order: json.data,
+          });
+        }
+      } catch (error) {
+        console.error("Fetch receipt detail error:", error);
+      }
+    }
+
+    await fetchOrders(false);
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       {/* Header Banner */}
@@ -186,24 +404,37 @@ export default function OrderManagementPage() {
           <div>
             <h1 className="text-xl font-bold text-slate-900">Order Management & History</h1>
             <p className="text-xs text-slate-500">
-              Inspect, search, filter, and audit active and historical customer orders
+              Inspect, search, filter, edit, and process final billing for customer orders
             </p>
           </div>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => fetchOrders(false)}
-          isLoading={isLoading}
-          leftIcon={<RefreshCw className="h-3.5 w-3.5" />}
-        >
-          Refresh Orders
-        </Button>
+        <div className="flex items-center gap-2">
+          {selectedOrderIds.length > 0 && (
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => setShowBulkDeleteConfirm(true)}
+              leftIcon={<Trash2 className="h-4 w-4" />}
+            >
+              Delete Selected ({selectedOrderIds.length})
+            </Button>
+          )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fetchOrders(false)}
+            isLoading={isLoading}
+            leftIcon={<RefreshCw className="h-3.5 w-3.5" />}
+          >
+            Refresh Orders
+          </Button>
+        </div>
       </div>
 
-      {/* Main Tab Navigation Header */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+      {/* Navigation Quick Tabs */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1">
         <button
           onClick={() => {
             setActiveTab("ACTIVE");
@@ -286,6 +517,12 @@ export default function OrderManagementPage() {
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 font-extrabold text-slate-500 border-b border-slate-200 uppercase text-[10px] tracking-wider">
                   <tr>
+                    <th className="p-4 w-10">
+                      <Checkbox
+                        checked={isAllSelected}
+                        onChange={(e) => handleSelectAll(e.target.checked)}
+                      />
+                    </th>
                     <th className="p-4">Order & Invoice</th>
                     <th className="p-4">Type & Location</th>
                     <th className="p-4">Customer</th>
@@ -294,12 +531,14 @@ export default function OrderManagementPage() {
                     <th className="p-4 text-center">Status</th>
                     <th className="p-4 text-center">Payment</th>
                     <th className="p-4">Created Time</th>
-                    <th className="p-4 text-center">Action</th>
+                    <th className="p-4 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
                   {orders.map((order) => {
-                    const isPaid = !!order.invoice?.payment;
+                    const isCompleted = order.status === "COMPLETED";
+                    const isPaid = isCompleted || !!order.invoice?.payment;
+                    const isCancelled = order.status === "CANCELLED";
                     const itemsCount = order.items ? order.items.length : order._count?.items || 0;
                     const elapsed = formatDistanceToNow(new Date(order.createdAt), { addSuffix: true });
 
@@ -309,6 +548,14 @@ export default function OrderManagementPage() {
                         className="hover:bg-slate-50/80 transition-colors group cursor-pointer"
                         onClick={() => setSelectedOrderId(order.id)}
                       >
+                        {/* Checkbox Column */}
+                        <td className="p-4 w-10" onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            checked={selectedOrderIds.includes(order.id)}
+                            onChange={(e) => handleSelectOne(order.id, e.target.checked)}
+                          />
+                        </td>
+
                         {/* Order & Invoice Number */}
                         <td className="p-4">
                           <span className="font-extrabold text-slate-900 group-hover:text-pizza-600 transition-colors">
@@ -377,19 +624,67 @@ export default function OrderManagementPage() {
                           <p className="text-[10px] text-slate-400 font-semibold">{elapsed}</p>
                         </td>
 
-                        {/* View Action */}
-                        <td className="p-4 text-center">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedOrderId(order.id);
-                            }}
-                            leftIcon={<Eye className="h-3.5 w-3.5 text-pizza-500" />}
-                          >
-                            View
-                          </Button>
+                        {/* Action Buttons Column: View, Final Bill, Edit, Receipt, Trash */}
+                        <td className="p-4">
+                          <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                            {/* View Button */}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setSelectedOrderId(order.id)}
+                              className="px-2 h-8 text-[11px]"
+                              leftIcon={<Eye className="h-3.5 w-3.5 text-pizza-500" />}
+                            >
+                              View
+                            </Button>
+
+                            {/* Unpaid / Active Order Actions: Final Bill & Edit */}
+                            {!isPaid && !isCompleted && !isCancelled && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleOpenPayment(order)}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-2.5 h-8 shadow-sm"
+                                  leftIcon={<Receipt className="h-3.5 w-3.5" />}
+                                >
+                                  Final Bill
+                                </Button>
+
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleEditOrder(order)}
+                                  className="px-2 h-8 text-[11px] font-bold border-slate-300 text-slate-700 hover:bg-amber-50 hover:text-amber-700 hover:border-amber-300"
+                                  leftIcon={<Edit3 className="h-3.5 w-3.5 text-amber-600" />}
+                                >
+                                  Edit
+                                </Button>
+                              </>
+                            )}
+
+                            {/* Paid / Completed Order Actions: Receipt */}
+                            {(isPaid || isCompleted) && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handlePrintReceipt(order.id)}
+                                className="px-2 h-8 text-[11px] font-bold border-slate-300 text-slate-700 hover:bg-slate-100"
+                                leftIcon={<Printer className="h-3.5 w-3.5 text-blue-600" />}
+                              >
+                                Receipt
+                              </Button>
+                            )}
+
+                            {/* Trash Icon Button for ALL Orders */}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteOrder(order.id, order.orderNumber)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                              title="Delete Order Record"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -400,29 +695,30 @@ export default function OrderManagementPage() {
           </div>
 
           {/* Pagination Controls Footer */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 text-xs">
-            <span className="text-slate-500 font-medium">
-              Showing page <strong className="text-slate-900">{pagination.page}</strong> of{" "}
-              <strong className="text-slate-900">{pagination.totalPages}</strong> ({pagination.total} total orders)
-            </span>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 text-xs font-bold text-slate-600">
+            <div>
+              Showing {orders.length} of {pagination.total} orders
+            </div>
 
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
+                onClick={() => setPage(page - 1)}
                 disabled={!pagination.hasPrevPage}
-                onClick={() => setPage((prev) => Math.max(1, prev - 1))}
                 leftIcon={<ChevronLeft className="h-4 w-4" />}
               >
                 Previous
               </Button>
-
+              <span>
+                Page {pagination.page} of {pagination.totalPages || 1}
+              </span>
               <Button
                 variant="outline"
                 size="sm"
+                onClick={() => setPage(page + 1)}
                 disabled={!pagination.hasNextPage}
-                onClick={() => setPage((prev) => prev + 1)}
-                rightIcon={<ChevronRight className="h-4 w-4 text-slate-600" />}
+                rightIcon={<ChevronRight className="h-4 w-4" />}
               >
                 Next
               </Button>
@@ -431,22 +727,48 @@ export default function OrderManagementPage() {
         </div>
       ) : (
         <EmptyState
-          title="No orders found"
-          description="No customer orders match your selected tab, search query, or date range filters."
-          icon={Receipt}
-          actionLabel="Clear Filters"
-          onAction={handleResetFilters}
+          title="No Orders Found"
+          description="There are no order records matching your current filter criteria."
+          icon={ShoppingBag}
         />
       )}
 
-      {/* Order Detail Drawer Slide-over */}
+      {/* Slide-Over Drawer for Detailed Order Inspection */}
       {selectedOrderId && (
         <OrderDetailsDrawer
           orderId={selectedOrderId}
           onClose={() => setSelectedOrderId(null)}
-          onOrderCancelled={() => fetchOrders(false)}
+          onOrderUpdated={() => fetchOrders(true)}
         />
       )}
+
+      {/* Final Settlement & Billing Modal */}
+      {orderForPayment && (
+        <PaymentModal
+          isOpen={!!orderForPayment}
+          onClose={() => setOrderForPayment(null)}
+          onSuccess={handlePaymentSuccess}
+          order={orderForPayment}
+        />
+      )}
+
+      {/* Printable Thermal Receipt Modal */}
+      {activeFinalReceipt && (
+        <ThermalReceipt
+          data={activeFinalReceipt}
+          onClose={() => setActiveFinalReceipt(null)}
+        />
+      )}
+
+      {/* Bulk Delete Dialog */}
+      <ConfirmationDialog
+        isOpen={showBulkDeleteConfirm}
+        onClose={() => setShowBulkDeleteConfirm(false)}
+        onConfirm={handleBulkDelete}
+        title={`Delete ${selectedOrderIds.length} Selected Orders`}
+        description={`Are you sure you want to delete ${selectedOrderIds.length} selected orders? All associated invoice and payment records will be permanently removed.`}
+        isLoading={isBulkDeleting}
+      />
     </div>
   );
 }

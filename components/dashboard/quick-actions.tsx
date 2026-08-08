@@ -21,9 +21,9 @@ export function QuickActions() {
       bg: "bg-pizza-500 hover:bg-pizza-600 shadow-md shadow-pizza-500/20 text-white",
     },
     {
-      title: "Kitchen Display (KDS)",
-      description: "Live order queue",
-      href: "/kitchen",
+      title: "Order Management",
+      description: "Active orders & history",
+      href: "/orders",
       icon: <ChefHat className="h-5 w-5 text-blue-600" />,
       bg: "bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200",
     },

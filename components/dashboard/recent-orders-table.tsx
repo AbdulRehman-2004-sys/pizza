@@ -6,19 +6,29 @@ import { RecentOrderItem } from "@/types/dashboard";
 import { Table } from "@/components/ui/table";
 import { StatusChip } from "@/components/ui/status-chip";
 import { SearchInput } from "@/components/ui/search-input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { Eye, ShoppingBag } from "lucide-react";
+import { Eye, ShoppingBag, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 export interface RecentOrdersTableProps {
   orders: RecentOrderItem[];
   isLoading?: boolean;
+  onRefresh?: () => void;
 }
 
-export function RecentOrdersTable({ orders, isLoading = false }: RecentOrdersTableProps) {
+export function RecentOrdersTable({ orders, isLoading = false, onRefresh }: RecentOrdersTableProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<RecentOrderItem | null>(null);
+
+  // Selection & Deletion state
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
 
   const filteredOrders = orders.filter((order) => {
     const query = searchQuery.toLowerCase().trim();
@@ -32,7 +42,93 @@ export function RecentOrdersTable({ orders, isLoading = false }: RecentOrdersTab
     );
   });
 
+  const isAllSelected =
+    filteredOrders.length > 0 && selectedOrderIds.length === filteredOrders.length;
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedOrderIds(filteredOrders.map((o) => o.id));
+    } else {
+      setSelectedOrderIds([]);
+    }
+  };
+
+  const handleSelectOne = (id: string, checked: boolean) => {
+    if (checked) {
+      setSelectedOrderIds((prev) => [...prev, id]);
+    } else {
+      setSelectedOrderIds((prev) => prev.filter((item) => item !== id));
+    }
+  };
+
+  const handleDeleteSingle = async () => {
+    if (!deletingId) return;
+    try {
+      setIsBulkDeleting(true);
+      const res = await fetch(`/api/orders/${deletingId}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        toast.error(json.error || "Failed to delete order");
+        return;
+      }
+      toast.success("Order deleted successfully!");
+      setDeletingId(null);
+      setSelectedOrderIds((prev) => prev.filter((id) => id !== deletingId));
+      if (onRefresh) onRefresh();
+      else window.location.reload();
+    } catch (error) {
+      console.error("Delete order error:", error);
+      toast.error("Network error deleting order");
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedOrderIds.length === 0) return;
+    try {
+      setIsBulkDeleting(true);
+      const res = await fetch("/api/orders", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds: selectedOrderIds }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        toast.error(json.error || "Failed to delete orders");
+        return;
+      }
+      toast.success(`${selectedOrderIds.length} order(s) deleted successfully!`);
+      setSelectedOrderIds([]);
+      setShowBulkConfirm(false);
+      if (onRefresh) onRefresh();
+      else window.location.reload();
+    } catch (error) {
+      console.error("Bulk delete orders error:", error);
+      toast.error("Network error deleting orders");
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
   const columns: ColumnDef<RecentOrderItem>[] = [
+    {
+      id: "select",
+      header: () => (
+        <Checkbox
+          checked={isAllSelected}
+          onChange={(e) => handleSelectAll(e.target.checked)}
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          checked={selectedOrderIds.includes(row.original.id)}
+          onChange={(e) => handleSelectOne(row.original.id, e.target.checked)}
+        />
+      ),
+    },
     {
       accessorKey: "orderNumber",
       header: "Order #",
@@ -89,16 +185,26 @@ export function RecentOrdersTable({ orders, isLoading = false }: RecentOrdersTab
     },
     {
       id: "actions",
-      header: "View",
+      header: "Actions",
       cell: ({ row }) => (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setSelectedOrder(row.original)}
-          leftIcon={<Eye className="h-3.5 w-3.5" />}
-        >
-          Details
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSelectedOrder(row.original)}
+            leftIcon={<Eye className="h-3.5 w-3.5" />}
+          >
+            Details
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => setDeletingId(row.original.id)}
+            leftIcon={<Trash2 className="h-3.5 w-3.5" />}
+          >
+            Delete
+          </Button>
+        </div>
       ),
     },
   ];
@@ -114,13 +220,27 @@ export function RecentOrdersTable({ orders, isLoading = false }: RecentOrdersTab
             <p className="text-xs text-slate-500">Live order activity from counter and kitchen</p>
           </div>
         </div>
-        <div className="w-full sm:w-72">
-          <SearchInput
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onClear={() => setSearchQuery("")}
-            placeholder="Filter order #, customer..."
-          />
+
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          {selectedOrderIds.length > 0 && (
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => setShowBulkConfirm(true)}
+              leftIcon={<Trash2 className="h-4 w-4" />}
+            >
+              Delete Selected ({selectedOrderIds.length})
+            </Button>
+          )}
+
+          <div className="w-full sm:w-72">
+            <SearchInput
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onClear={() => setSearchQuery("")}
+              placeholder="Filter order #, customer..."
+            />
+          </div>
         </div>
       </div>
 
@@ -161,27 +281,29 @@ export function RecentOrdersTable({ orders, isLoading = false }: RecentOrdersTab
                 <p className="font-extrabold text-pizza-600 text-sm">{formatCurrency(selectedOrder.totalAmount)}</p>
               </div>
             </div>
-
-            <div className="border-t border-slate-100 pt-3">
-              <h4 className="font-bold text-slate-900 uppercase tracking-wider mb-2">Order Items ({selectedOrder.itemsCount})</h4>
-              <div className="rounded-xl border border-slate-200 p-3 bg-white space-y-1.5 text-slate-700 font-medium">
-                <div className="flex justify-between">
-                  <span>1x Pepperoni Supreme Pizza (Large)</span>
-                  <span className="font-bold">{formatCurrency(selectedOrder.totalAmount * 0.6)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>1x Garlic Parmesan Wings (10pcs)</span>
-                  <span className="font-bold">{formatCurrency(selectedOrder.totalAmount * 0.4)}</span>
-                </div>
-                <div className="border-t border-slate-100 pt-1.5 flex justify-between font-bold text-slate-900">
-                  <span>Total</span>
-                  <span>{formatCurrency(selectedOrder.totalAmount)}</span>
-                </div>
-              </div>
-            </div>
           </div>
         </Modal>
       )}
+
+      {/* Single Delete Dialog */}
+      <ConfirmationDialog
+        isOpen={!!deletingId}
+        onClose={() => setDeletingId(null)}
+        onConfirm={handleDeleteSingle}
+        title="Delete Order"
+        description="Are you sure you want to delete this order record? This action cannot be undone."
+        isLoading={isBulkDeleting}
+      />
+
+      {/* Bulk Delete Dialog */}
+      <ConfirmationDialog
+        isOpen={showBulkConfirm}
+        onClose={() => setShowBulkConfirm(false)}
+        onConfirm={handleBulkDelete}
+        title={`Delete ${selectedOrderIds.length} Selected Orders`}
+        description={`Are you sure you want to delete ${selectedOrderIds.length} selected orders? All associated invoice and payment records will be permanently removed.`}
+        isLoading={isBulkDeleting}
+      />
     </div>
   );
 }

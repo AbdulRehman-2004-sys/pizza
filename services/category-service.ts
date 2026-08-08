@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { CategoryInput } from "@/validators/category";
+import { createMenuItem } from "@/services/menu-item-service";
 
 export async function getAllCategories(includeInactive: boolean = true) {
   return prisma.category.findMany({
@@ -17,7 +18,16 @@ export async function getCategoryById(id: string) {
   return prisma.category.findUnique({
     where: { id },
     include: {
-      menuItems: true,
+      menuItems: {
+        include: {
+          itemPrices: {
+            include: {
+              size: true,
+            },
+          },
+        },
+        orderBy: { name: "asc" },
+      },
     },
   });
 }
@@ -31,12 +41,33 @@ export async function createCategory(data: CategoryInput) {
     throw new Error(`Category "${data.name}" already exists.`);
   }
 
-  return prisma.category.create({
+  const { items, ...categoryData } = data;
+
+  const category = await prisma.category.create({
     data: {
-      ...data,
+      ...categoryData,
       name: data.name.trim(),
     },
   });
+
+  // Create attached menu items if provided
+  if (Array.isArray(items) && items.length > 0) {
+    for (const itemData of items) {
+      if (!itemData.name || !itemData.name.trim()) continue;
+      await createMenuItem({
+        categoryId: category.id,
+        name: itemData.name.trim(),
+        basePrice: itemData.basePrice ?? 0,
+        isCustomizable: categoryData.categoryType === "PIZZA",
+        allowSizes: categoryData.categoryType === "PIZZA",
+        smallPrice: itemData.smallPrice,
+        mediumPrice: itemData.mediumPrice,
+        largePrice: itemData.largePrice,
+      });
+    }
+  }
+
+  return category;
 }
 
 export async function updateCategory(id: string, data: CategoryInput) {
@@ -51,10 +82,12 @@ export async function updateCategory(id: string, data: CategoryInput) {
     throw new Error(`Category name "${data.name}" is already taken.`);
   }
 
+  const { items, ...categoryData } = data;
+
   return prisma.category.update({
     where: { id },
     data: {
-      ...data,
+      ...categoryData,
       name: data.name.trim(),
     },
   });

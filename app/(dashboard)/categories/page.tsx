@@ -12,6 +12,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { UtensilsCrossed, Plus, Edit2, Trash2, Layers, CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
+import { CategoryItemsModal } from "@/components/categories/category-items-modal";
+
 export default function CategoriesPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "ADMIN";
@@ -22,6 +24,8 @@ export default function CategoriesPage() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<CategoryItem | null>(null);
+
+  const [selectedCategoryForItems, setSelectedCategoryForItems] = useState<CategoryItem | null>(null);
 
   const [deletingCategoryId, setDeletingCategoryId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -84,7 +88,7 @@ export default function CategoriesPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-slate-900">Category Management</h1>
-            <p className="text-xs text-slate-500">Organize menu items into display categories</p>
+            <p className="text-xs text-slate-500">Organize menu items & configure pizza size pricing</p>
           </div>
         </div>
 
@@ -128,41 +132,53 @@ export default function CategoriesPage() {
           {filteredCategories.map((cat) => (
             <div
               key={cat.id}
-              className="rounded-2xl bg-white p-5 border border-slate-200 shadow-soft hover:shadow-md transition-all flex flex-col justify-between"
+              onClick={() => setSelectedCategoryForItems(cat)}
+              className="group rounded-2xl bg-white p-5 border border-slate-200 shadow-soft hover:shadow-md hover:border-pizza-300 transition-all flex flex-col justify-between cursor-pointer select-none"
             >
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <span className="font-extrabold text-slate-900 text-xs font-mono bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
                     Order #{cat.displayOrder}
                   </span>
-                  <Badge variant={cat.isActive ? "success" : "default"}>
-                    {cat.isActive ? "Active" : "Disabled"}
-                  </Badge>
+                  <div className="flex gap-1">
+                    {cat.categoryType === "PIZZA" && (
+                      <Badge variant="primary">Pizza Category</Badge>
+                    )}
+                    <Badge variant={cat.isActive ? "success" : "default"}>
+                      {cat.isActive ? "Active" : "Disabled"}
+                    </Badge>
+                  </div>
                 </div>
 
-                <h3 className="text-base font-bold text-slate-900">{cat.name}</h3>
+                <h3 className="text-base font-bold text-slate-900 group-hover:text-pizza-600 transition-colors">
+                  {cat.name}
+                </h3>
                 {cat.description && <p className="text-xs text-slate-500 mt-1 line-clamp-2">{cat.description}</p>}
               </div>
 
               <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-600">
-                  {cat._count?.menuItems ?? 0} item(s)
+                <span className="text-xs font-semibold text-slate-600 bg-slate-50 px-2 py-1 rounded-lg">
+                  {cat._count?.menuItems ?? 0} item(s) (Click to view)
                 </span>
 
                 {isAdmin && (
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                     <button
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         setEditingCategory(cat);
                         setIsModalOpen(true);
                       }}
                       className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
-                      title="Edit Category"
+                      title="Edit Category Details"
                     >
                       <Edit2 className="h-4 w-4" />
                     </button>
                     <button
-                      onClick={() => setDeletingCategoryId(cat.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeletingCategoryId(cat.id);
+                      }}
                       className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors"
                       title="Delete Category"
                     >
@@ -179,6 +195,16 @@ export default function CategoriesPage() {
           title="No categories found"
           description="Try adjusting your search query."
           icon={Layers}
+        />
+      )}
+
+      {/* Category Items View & Edit Modal */}
+      {selectedCategoryForItems && (
+        <CategoryItemsModal
+          isOpen={!!selectedCategoryForItems}
+          onClose={() => setSelectedCategoryForItems(null)}
+          category={selectedCategoryForItems}
+          isAdmin={isAdmin}
         />
       )}
 

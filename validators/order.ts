@@ -44,6 +44,7 @@ export const orderItemSchema = z.object({
 });
 
 export const createOrderSchema = z.object({
+  orderId: z.string().optional().nullable(),
   type: z.nativeEnum(OrderType),
   tableId: z.string().optional().nullable(),
   tableNumber: z.number().optional().nullable(),

@@ -1,44 +1,33 @@
-# Project Memory & Final Development State
+# Project Memory & Refactored POS Order State
 
 ## Current Status
-- **System Status**: **PRODUCTION-READY** (All 10 Phases Completed & Verified).
-- **Current Phase**: **Phase 10: Polish, Optimization & Final Deployment (COMPLETED)**.
+- **System Status**: **PRODUCTION-READY (DASHBOARD REAL-TIME STATS SYNCHRONIZATION COMPLETED)**.
+- **Current Architecture**: **Real Database Count Queries for Dashboard KPIs (COMPLETED & VERIFIED)**.
 
-## Completed Phases Overview
-1. **Phase 0: Project Planning & Tech Spec**: Core architecture, PRD, database rules, design system tokens.
-2. **Phase 1: Foundation & Authentication**: Next.js 16 App Router, JWT HttpOnly cookies, Edge Middleware RBAC, responsive shell.
-3. **Phase 2: Master Data Setup**: Restaurant settings, Tables CRUD, Categories CRUD, Menu Items CRUD with local image uploads.
-4. **Phase 3: Pizza Customization Engine**: Pizza sizes CRUD, extra toppings CRUD, extra cheese config, size-price matrix, pizza builder modal.
-5. **Phase 4: POS Order Screen**: Touchscreen checkout grid, Dine-In / Take-Away / Delivery workflows, Zustand cart store, customer auto-lookup.
-6. **Phase 5: Kitchen Order Ticket & KDS**: Real-time touchscreen Kitchen Display System, status progression (PENDING -> KITCHEN -> READY -> COMPLETED), ready notification bell, auto-polling.
-7. **Phase 6: Billing, Payments & Thermal Receipts**: Invoicing `INV-XXXX`, Payment recording (`CASH`, `CARD`, `JAZZCASH`, `EASYPAISA`), change calculator, automatic dining table status release (`AVAILABLE`), 80mm thermal receipt printing (`@media print`).
-8. **Phase 7: Order Management & Ledger**: Active orders dashboard, read-only completed feed, full order history ledger, debounced multi-field search, date shortcuts, cancellation audit trail.
-9. **Phase 8: Reports & Business Analytics**: Server-side database aggregations, Reports Dashboard summary metrics, Daily Sales breakdown by order type, Monthly Sales trend charts with Recharts, Top Selling Items ranking, Sales by Payment Method reconciliation, PDF print generator, CSV export download.
-10. **Phase 9: User & Staff Management**: Admin User Management dashboard, User CRUD, Role assignment (`ADMIN`/`CASHIER`), active status toggle, self-protection safeguards (prevents deactivating last active Admin), Admin password reset, single-use token-based forgot password workflow.
-11. **Phase 10: Polish, Optimization & Production Deployment**:
-    - Database performance indexing (`@@index` on `User`, `MenuItem`, `Order`, `KitchenOrder`, `Payment`, `OrderItem`).
-    - 100vh viewport height scrollable sidebar layout with custom dark scrollbar.
-    - Route error recovery boundaries, 404 page, loading skeletons, and HTTP 403 Forbidden page.
-    - Local production build verification (`npx next build` passing clean across 48 routes).
-    - Production deployment readiness on Neon PostgreSQL and Vercel.
+## Dashboard Stats & Orders Sync Fix
+1. **Root Cause**:
+   - `getDashboardStats()` in `services/dashboard-service.ts` had a hardcoded fallback returning dummy numbers (`todayOrdersCount: 42`, `pendingKitchenCount: 5`, `todaySales: 18540`) whenever total database orders count was 0 or when all active orders were deleted.
+   - This caused a mismatch: `/orders` correctly reported "No Orders Found" (0 active orders), while the Dashboard KPI card displayed a hardcoded **5 Pending Kitchen Orders**.
 
-## Database & Indexing Status
-- Database: Neon PostgreSQL hosted on `ep-holy-recipe-aynh100v.c-5.us-east-2.aws.neon.tech`.
-- Models: `User`, `PasswordResetToken`, `RestaurantSettings`, `Customer`, `Table`, `Category`, `PizzaSize`, `ExtraTopping`, `ExtraCheese`, `MenuItem`, `MenuItemPrice`, `Order`, `KitchenOrder`, `KitchenStatusHistory`, `Invoice`, `Payment`, `OrderItem`.
-- Database Indexes: `User([role], [isActive])`, `MenuItem([categoryId], [isAvailable])`, `Order([status], [createdAt], [type], [cashierId])`, `KitchenOrder([status])`, `Payment([method], [paidAt])`, `OrderItem([orderId], [productId])`.
+2. **Fix**:
+   - Replaced all hardcoded fallbacks in `services/dashboard-service.ts` with real database aggregation and `prisma.order.count()` queries:
+     - `pendingKitchenCount`: Real `prisma.order.count({ where: { status: { in: ["KITCHEN", "PENDING", "READY"] } } })`
+     - `todayOrdersCount`: Real `prisma.order.count()` for today's date
+     - `todaySales`: Real `prisma.order.aggregate({ _sum: { totalAmount: true } })` for completed orders today
+   - Both `/dashboard` and `/orders` are now 100% in sync with real database state in real-time.
 
-## Production Build Status
-- **TypeScript**: `npx tsc --noEmit` $\rightarrow$ **0 compilation errors**.
-- **Next.js Production Build**: `npx next build` $\rightarrow$ **`✓ Compiled successfully` across 48 routes**.
+## Core POS & Billing Workflow Rules
+1. **POS Cart Reset on KOT & New Order**:
+   - Clicking **[ Send KOT to Kitchen ]** in `/pos` generates the KOT ticket, displays the 80mm thermal kitchen slip preview, and **automatically resets/clears the POS terminal cart** for the next incoming customer.
+   - Clicking **[ New Order ]** in the top navbar calls `clearCart()` and navigates to `/pos`, resetting the cart terminal for a new customer.
 
-## Environment Configuration
-```env
-DATABASE_URL="postgresql://neondb_owner:npg_wv3YKUyb9PXZ@ep-holy-recipe-aynh100v.c-5.us-east-2.aws.neon.tech/neondb?sslmode=require&connect_timeout=15"
-DIRECT_URL="postgresql://neondb_owner:npg_wv3YKUyb9PXZ@ep-holy-recipe-aynh100v.c-5.us-east-2.aws.neon.tech/neondb?sslmode=require&connect_timeout=15"
-JWT_SECRET="pizza_shop_pos_jwt_secret_key_2026_super_secure_32_chars!"
-NEXT_PUBLIC_APP_NAME="SliceMaster Pizza POS"
-```
+2. **Order Management (`/orders`) Centric Actions & Lifecycle**:
+   - **Unpaid / Active Orders**: Displays **[ View ]**, **[ Final Bill ]**, **[ Edit ]**, and **Trash Icon**.
+   - **Payment Confirmation**: Updates status to **`Completed`** and payment badge to **`PAID`**.
+   - **Paid / Completed Orders**: **[ Final Bill ]** and **[ Edit ]** are removed; **[ View ]**, **[ Receipt ]**, and **Trash Icon** appear.
 
-## Seed Credentials
-- **Admin**: `admin@pizzapos.com` / `admin123`
-- **Cashier**: `cashier@pizzapos.com` / `cashier123`
+## Files Updated
+- `services/dashboard-service.ts` (Replaced hardcoded fallback stats with real database queries)
+
+## Known Issues / Testing Status
+- TypeScript compilation (`npx tsc --noEmit`): **0 errors**.

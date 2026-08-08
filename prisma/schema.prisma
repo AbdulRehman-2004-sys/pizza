@@ -119,6 +119,7 @@ model Category {
   id           String     @id @default(uuid())
   name         String     @unique
   description  String?
+  categoryType String     @default("STANDARD")
   displayOrder Int        @default(0)
   isActive     Boolean    @default(true)
   createdAt    DateTime   @default(now())
@@ -204,30 +205,30 @@ model MenuItemPrice {
 }
 
 model Order {
-  id             String        @id @default(uuid())
-  orderNumber    String        @unique
-  status         OrderStatus   @default(PENDING)
-  type           OrderType     @default(DINE_IN)
-  subtotal       Float         @default(0)
-  taxAmount      Float         @default(0)
-  discountAmount Float         @default(0)
-  totalAmount    Float
-  customerNotes  String?
-  tableId        String?
-  table          Table?        @relation(fields: [tableId], references: [id], onDelete: SetNull)
-  tableNumber    Int?
-  customerId     String?
-  customer       Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  id                 String         @id @default(uuid())
+  orderNumber        String         @unique
+  status             OrderStatus    @default(PENDING)
+  type               OrderType      @default(DINE_IN)
+  subtotal           Float          @default(0)
+  taxAmount          Float          @default(0)
+  discountAmount     Float          @default(0)
+  totalAmount        Float
+  customerNotes      String?
+  tableId            String?
+  table              Table?         @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  tableNumber        Int?
+  customerId         String?
+  customer           Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
   cashierId          String
-  cashier            User          @relation(fields: [cashierId], references: [id])
+  cashier            User           @relation(fields: [cashierId], references: [id])
   cancellationReason String?
   cancelledAt        DateTime?
   cancelledById      String?
-  cancelledBy        User?         @relation("OrderCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  cancelledBy        User?          @relation("OrderCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
   items              OrderItem[]
-  kitchenOrder       KitchenOrder?
+  kitchenOrders      KitchenOrder[]
   invoice            Invoice?
 
   @@index([status])
@@ -240,7 +241,7 @@ model Order {
 model KitchenOrder {
   id            String                 @id @default(uuid())
   kotNumber     String                 @unique
-  orderId       String                 @unique
+  orderId       String
   order         Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
   status        OrderStatus            @default(PENDING)
   startedAt     DateTime?
@@ -249,9 +250,27 @@ model KitchenOrder {
   createdAt     DateTime               @default(now())
   updatedAt     DateTime               @updatedAt
   statusHistory KitchenStatusHistory[]
+  items         KitchenOrderItem[]
 
+  @@index([orderId])
   @@index([status])
   @@map("kitchen_orders")
+}
+
+model KitchenOrderItem {
+  id             String       @id @default(uuid())
+  kitchenOrderId String
+  kitchenOrder   KitchenOrder @relation(fields: [kitchenOrderId], references: [id], onDelete: Cascade)
+  orderItemId    String?
+  orderItem      OrderItem?   @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  productName    String
+  sizeName       String?
+  extraCheese    Boolean      @default(false)
+  selectedToppings Json?
+  itemNotes      String?
+  quantity       Int
+
+  @@map("kitchen_order_items")
 }
 
 model KitchenStatusHistory {
@@ -300,21 +319,23 @@ model Payment {
 }
 
 model OrderItem {
-  id               String    @id @default(uuid())
+  id               String             @id @default(uuid())
   orderId          String
-  order            Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order            Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productId        String?
-  menuItem         MenuItem? @relation(fields: [productId], references: [id], onDelete: SetNull)
-  productName      String    @default("Product")
+  menuItem         MenuItem?          @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName      String             @default("Product")
   sizeId           String?
   sizeName         String?
-  extraCheese      Boolean   @default(false)
-  cheesePrice      Float     @default(0)
+  extraCheese      Boolean            @default(false)
+  cheesePrice      Float              @default(0)
   selectedToppings Json?
   itemNotes        String?
   quantity         Int
+  sentQuantity     Int                @default(0)
   unitPrice        Float
   totalPrice       Float
+  kotItems         KitchenOrderItem[]
 
   @@index([orderId])
   @@index([productId])

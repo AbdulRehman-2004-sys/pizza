@@ -1,4 +1,4 @@
-import prisma from "@/lib/prisma";
+import prisma, { safeDbQuery } from "@/lib/prisma";
 import { OrderStatus, OrderType } from "@prisma/client";
 
 export async function createKOTTicket(tx: any, orderId: string) {
@@ -123,31 +123,36 @@ export async function updateKitchenOrderStatus(
     updateData.completedAt = now;
   }
 
-  return prisma.$transaction(async (tx) => {
-    // 1. Update KitchenOrder ticket
-    const updatedKOT = await tx.kitchenOrder.update({
-      where: { id: kitchenOrderId },
-      data: {
-        ...updateData,
-        statusHistory: {
-          create: {
-            status: newStatus,
-            changedById: validChangedById,
+  return safeDbQuery(async () => {
+    return prisma.$transaction(
+      async (tx) => {
+        // 1. Update KitchenOrder ticket
+        const updatedKOT = await tx.kitchenOrder.update({
+          where: { id: kitchenOrderId },
+          data: {
+            ...updateData,
+            statusHistory: {
+              create: {
+                status: newStatus,
+                changedById: validChangedById,
+              },
+            },
           },
-        },
-      },
-      include: {
-        order: true,
-      },
-    });
+          include: {
+            order: true,
+          },
+        });
 
-    // 2. Sync status to main Order model
-    await tx.order.update({
-      where: { id: updatedKOT.orderId },
-      data: { status: newStatus },
-    });
+        // 2. Sync status to main Order model
+        await tx.order.update({
+          where: { id: updatedKOT.orderId },
+          data: { status: newStatus },
+        });
 
-    return updatedKOT;
+        return updatedKOT;
+      },
+      { maxWait: 15000, timeout: 60000 }
+    );
   });
 }
 

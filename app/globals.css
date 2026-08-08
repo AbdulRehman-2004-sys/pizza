@@ -51,16 +51,19 @@
   background: #f97316;
 }
 
-/* Thermal Receipt 80mm Print Media Styles */
+/* Thermal Receipt & KOT 80mm Print Media Styles */
 @media print {
   body * {
     visibility: hidden !important;
   }
   #thermal-receipt-paper,
-  #thermal-receipt-paper * {
+  #thermal-receipt-paper *,
+  #kot-print-area,
+  #kot-print-area * {
     visibility: visible !important;
   }
-  #thermal-receipt-paper {
+  #thermal-receipt-paper,
+  #kot-print-area {
     position: absolute !important;
     left: 0 !important;
     top: 0 !important;
@@ -70,5 +73,9 @@
     padding: 10px !important;
     box-shadow: none !important;
     border: none !important;
+  }
+  @page {
+    size: 80mm auto;
+    margin: 0;
   }
 }

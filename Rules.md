@@ -7,16 +7,17 @@
 4. **NO Raw Unvalidated User Input**: All form submissions and API body payloads MUST be validated using Zod schemas (`validators/`).
 5. **NO Foreign Styling Frameworks**: Use Tailwind CSS exclusively. Material UI, Bootstrap, and Chakra UI are strictly forbidden.
 6. **NO External Backend Services**: Everything must reside inside the Next.js single repository structure (`/app/api`). Express, NestJS, Supabase, and Firebase are strictly forbidden.
+7. **NO Payment Gateway Integration**: All payment methods (`CASH`, `CARD`, `JAZZCASH`, `EASYPAISA`) are records only.
+8. **NO Image Upload Placeholders**: Product cards and menu modals must work cleanly without requiring image uploads or showing empty upload boxes.
 
 ---
 
-## 2. Naming Conventions
-- **Files & Folders**: Kebab-case (`user-nav.tsx`, `sales-cards.tsx`, `auth-service.ts`).
-- **Components**: PascalCase (`Button`, `SalesCards`, `LoginForm`).
-- **Functions & Variables**: camelCase (`formatCurrency`, `getUserSession`, `isLoading`).
-- **Types & Interfaces**: PascalCase (`User`, `OrderStatus`, `ApiResponse<T>`).
-- **Database Tables & Fields**: camelCase in Prisma models (`orderNumber`, `totalAmount`, `cashierId`).
-- **API Endpoints**: Plural kebab-case REST nouns (`/api/auth/login`, `/api/dashboard/stats`).
+## 2. POS & KOT Workflow Rules
+1. **Dual Button POS**: POS checkout uses two distinct buttons: **[ KOT ]** and **[ FINAL BILL ]**. Never combine or replace them with a single "Place Order" button.
+2. **Incremental KOT Tracking**: Track `sentQuantity` per `OrderItem`. When KOT is clicked on an open order with new/additional items, print ONLY the newly added items or incremental quantities.
+3. **No Empty KOT Tickets**: Never create an empty `KitchenOrder` if there are no unsent items (`quantity <= sentQuantity`). Show a clear notification to the cashier instead.
+4. **Order Persistence**: KOT generation keeps the active order OPEN on the POS screen. Final Bill processes payment, marks order COMPLETED, releases dining tables, prints customer receipts, and clears the active POS order.
+5. **Category Pizza Pricing**: Manage pizza sizes (Small, Medium, Large) and extra pricing directly inside the Category module popups without requiring external configuration pages.
 
 ---
 
@@ -30,40 +31,5 @@
 
 ## 4. API & Error Handling Rules
 - All Route Handlers (`/app/api/.../route.ts`) must wrap operations in `try / catch` blocks.
-- API endpoints must return structured JSON responses with explicit HTTP status codes:
-  - `200 OK`: Successful fetch or update.
-  - `201 Created`: Resource successfully created.
-  - `400 Bad Request`: Validation failure.
-  - `401 Unauthorized`: Unauthenticated request.
-  - `403 Forbidden`: Insufficient role permissions.
-  - `404 Not Found`: Target entity missing.
-  - `500 Internal Server Error`: Unhandled server exception.
-- Never leak database connection string or sensitive server error tracebacks to the client.
-
----
-
-## 5. Security & Auth Rules
-- Authentication tokens MUST be stored inside `HttpOnly`, `SameSite=Lax`, `Secure` cookies. Never store tokens in `localStorage` or `sessionStorage`.
-- Password hashes MUST use `bcryptjs` with a minimum salt round of 10.
-- All protected API handlers and client pages MUST check user authorization role before returning sensitive data.
-
----
-
-## 6. Allowed vs Forbidden Libraries
-### Allowed Libraries
-- Framework: Next.js 16 (App Router)
-- DB/ORM: PostgreSQL, Prisma ORM
-- State: Zustand
-- Forms/Validation: React Hook Form, Zod
-- Data/Tables: TanStack Table
-- Charts: Recharts
-- Toasts: Sonner
-- Icons: Lucide React
-- Utilities: date-fns, clsx, tailwind-merge, jose, bcryptjs
-
-### Forbidden Libraries
-- Express / NestJS / Fastify
-- Redux / MobX / Recoil
-- Material UI / Bootstrap / Chakra UI / Ant Design
-- Firebase / Supabase / Appwrite
-- MongoDB / Mongoose
+- API endpoints must return structured JSON responses with explicit HTTP status codes (`200`, `201`, `400`, `401`, `403`, `404`, `500`).
+- Never leak sensitive server tracebacks to the client.

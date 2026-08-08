@@ -21,7 +21,11 @@ export async function middleware(request: NextRequest) {
   // Static assets & uploads bypass
   if (
     pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon.ico") ||
+    pathname.startsWith("/favicon") ||
+    pathname.startsWith("/icon") ||
+    pathname.endsWith(".svg") ||
+    pathname.endsWith(".ico") ||
+    pathname.endsWith(".png") ||
     pathname.startsWith("/uploads")
   ) {
     return NextResponse.next();
@@ -71,5 +75,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|favicon.svg|.*\\.svg|.*\\.ico).*)"],
 };
