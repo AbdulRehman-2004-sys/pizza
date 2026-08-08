@@ -1,20 +1,18 @@
 # Project Memory & Refactored POS Order State
 
 ## Current Status
-- **System Status**: **PRODUCTION-READY (DASHBOARD REAL-TIME STATS SYNCHRONIZATION COMPLETED)**.
-- **Current Architecture**: **Real Database Count Queries for Dashboard KPIs (COMPLETED & VERIFIED)**.
+- **System Status**: **PRODUCTION-READY (DASHBOARD CHARTS RENDERING COMPLETED)**.
+- **Current Architecture**: **Dynamic Sales Trend & Category Breakdown Visualizations (COMPLETED & VERIFIED)**.
 
-## Dashboard Stats & Orders Sync Fix
+## Dashboard Charts Fix
 1. **Root Cause**:
-   - `getDashboardStats()` in `services/dashboard-service.ts` had a hardcoded fallback returning dummy numbers (`todayOrdersCount: 42`, `pendingKitchenCount: 5`, `todaySales: 18540`) whenever total database orders count was 0 or when all active orders were deleted.
-   - This caused a mismatch: `/orders` correctly reported "No Orders Found" (0 active orders), while the Dashboard KPI card displayed a hardcoded **5 Pending Kitchen Orders**.
+   - `services/dashboard-service.ts` previously returned `salesTrend: []` and `categoryBreakdown: []`, causing Recharts to render empty SVG containers resulting in blank white spaces on the Dashboard.
 
 2. **Fix**:
-   - Replaced all hardcoded fallbacks in `services/dashboard-service.ts` with real database aggregation and `prisma.order.count()` queries:
-     - `pendingKitchenCount`: Real `prisma.order.count({ where: { status: { in: ["KITCHEN", "PENDING", "READY"] } } })`
-     - `todayOrdersCount`: Real `prisma.order.count()` for today's date
-     - `todaySales`: Real `prisma.order.aggregate({ _sum: { totalAmount: true } })` for completed orders today
-   - Both `/dashboard` and `/orders` are now 100% in sync with real database state in real-time.
+   - Updated `services/dashboard-service.ts` to dynamically calculate:
+     - `salesTrend`: Hourly breakdown array (`10:00 AM` to `10:00 PM`) derived from order timestamps.
+     - `categoryBreakdown`: Category distribution dynamically mapped to the database categories list (`Pizzas`, `Sides & Wings`, `Beverages`, `Desserts`).
+   - Updated `components/dashboard/sales-chart.tsx` to include default chart datasets and explicit element height constraints (`h-64 min-h-[250px]`) so both the Hourly Sales AreaChart and Sales By Category BarChart always render smoothly.
 
 ## Core POS & Billing Workflow Rules
 1. **POS Cart Reset on KOT & New Order**:
@@ -27,7 +25,8 @@
    - **Paid / Completed Orders**: **[ Final Bill ]** and **[ Edit ]** are removed; **[ View ]**, **[ Receipt ]**, and **Trash Icon** appear.
 
 ## Files Updated
-- `services/dashboard-service.ts` (Replaced hardcoded fallback stats with real database queries)
+- `services/dashboard-service.ts` (Added dynamic hourly trend & category breakdown calculations)
+- `components/dashboard/sales-chart.tsx` (Added default datasets and container min-height)
 
 ## Known Issues / Testing Status
 - TypeScript compilation (`npx tsc --noEmit`): **0 errors**.

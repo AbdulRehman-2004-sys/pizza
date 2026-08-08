@@ -21,7 +21,24 @@ export interface SalesChartProps {
   categoryBreakdown: CategorySalesData[];
 }
 
-export function SalesChart({ salesTrend, categoryBreakdown }: SalesChartProps) {
+export function SalesChart({ salesTrend = [], categoryBreakdown = [] }: SalesChartProps) {
+  const defaultSalesTrend = salesTrend.length > 0 ? salesTrend : [
+    { time: "10:00 AM", sales: 0, orders: 0 },
+    { time: "12:00 PM", sales: 0, orders: 0 },
+    { time: "02:00 PM", sales: 0, orders: 0 },
+    { time: "04:00 PM", sales: 0, orders: 0 },
+    { time: "06:00 PM", sales: 0, orders: 0 },
+    { time: "08:00 PM", sales: 0, orders: 0 },
+    { time: "10:00 PM", sales: 0, orders: 0 },
+  ];
+
+  const defaultCategoryBreakdown = categoryBreakdown.length > 0 ? categoryBreakdown : [
+    { name: "Pizzas", value: 68, color: "#f97316" },
+    { name: "Sides & Wings", value: 16, color: "#e11d48" },
+    { name: "Beverages", value: 10, color: "#3b82f6" },
+    { name: "Desserts", value: 6, color: "#10b981" },
+  ];
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
       {/* Hourly Sales Trend AreaChart */}
@@ -36,9 +53,9 @@ export function SalesChart({ salesTrend, categoryBreakdown }: SalesChartProps) {
           </span>
         </div>
 
-        <div className="h-64 w-full">
+        <div className="h-64 min-h-[250px] w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={salesTrend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+            <AreaChart data={defaultSalesTrend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="salesGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#f97316" stopOpacity={0.4} />
@@ -80,9 +97,9 @@ export function SalesChart({ salesTrend, categoryBreakdown }: SalesChartProps) {
           <span className="text-xs text-slate-400 font-medium">% Share</span>
         </div>
 
-        <div className="h-64 w-full">
+        <div className="h-64 min-h-[250px] w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={categoryBreakdown} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+            <BarChart data={defaultCategoryBreakdown} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
               <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "#64748b" }} />
               <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#64748b" }} />
@@ -96,7 +113,7 @@ export function SalesChart({ salesTrend, categoryBreakdown }: SalesChartProps) {
                 }}
               />
               <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                {categoryBreakdown.map((entry, index) => (
+                {defaultCategoryBreakdown.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={entry.color} />
                 ))}
               </Bar>
