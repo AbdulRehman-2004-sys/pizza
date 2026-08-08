@@ -169,35 +169,11 @@ export async function processOrderPayment(input: ProcessPaymentInput, userId: st
           });
         }
 
-        // 4. Update Order status -> COMPLETED
-        const updatedOrder = await tx.order.update({
-          where: { id: order.id },
-          data: { status: "COMPLETED" },
-        });
-
-        // 5. Update KitchenOrders status -> COMPLETED
-        for (const kot of order.kitchenOrders) {
-          await tx.kitchenOrder.update({
-            where: { id: kot.id },
-            data: {
-              status: "COMPLETED",
-              completedAt: new Date(),
-            },
-          });
-        }
-
-        // 6. Release Dining Table -> AVAILABLE
-        if (order.type === "DINE_IN" && order.tableId) {
-          await tx.table.update({
-            where: { id: order.tableId },
-            data: { status: "AVAILABLE" },
-          });
-        }
-
+        // 4. Return invoice and payment results (order status remains active until cashier clicks [ Paid ])
         return {
-          order: updatedOrder,
           invoice,
           payment,
+          order,
         };
       },
       { maxWait: 10000, timeout: 30000 }

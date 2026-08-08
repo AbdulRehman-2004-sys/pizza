@@ -1,18 +1,23 @@
 # Project Memory & Refactored POS Order State
 
 ## Current Status
-- **System Status**: **PRODUCTION-READY (DASHBOARD CHARTS RENDERING COMPLETED)**.
-- **Current Architecture**: **Dynamic Sales Trend & Category Breakdown Visualizations (COMPLETED & VERIFIED)**.
+- **System Status**: **PRODUCTION-READY (FINAL BILL -> PAID -> MOVE TO COMPLETED WORKFLOW COMPLETED)**.
+- **Current Architecture**: **Interactive Order Settlement & Automatic Receipt Generation (COMPLETED & VERIFIED)**.
 
-## Dashboard Charts Fix
-1. **Root Cause**:
-   - `services/dashboard-service.ts` previously returned `salesTrend: []` and `categoryBreakdown: []`, causing Recharts to render empty SVG containers resulting in blank white spaces on the Dashboard.
+## Final Bill -> Paid -> Completed Order Lifecycle
+1. **Click `[ Final Bill ]`**:
+   - Opens the payment settlement modal (`PaymentModal`).
 
-2. **Fix**:
-   - Updated `services/dashboard-service.ts` to dynamically calculate:
-     - `salesTrend`: Hourly breakdown array (`10:00 AM` to `10:00 PM`) derived from order timestamps.
-     - `categoryBreakdown`: Category distribution dynamically mapped to the database categories list (`Pizzas`, `Sides & Wings`, `Beverages`, `Desserts`).
-   - Updated `components/dashboard/sales-chart.tsx` to include default chart datasets and explicit element height constraints (`h-64 min-h-[250px]`) so both the Hourly Sales AreaChart and Sales By Category BarChart always render smoothly.
+2. **Click `[ Confirm Payment ]`**:
+   - Creates/Updates `Invoice` & `Payment` records in `services/billing-service.ts`.
+   - **Automatic Receipt Generation**: Instantly loads and displays the printable 80mm **Thermal Receipt** modal (`ThermalReceipt`).
+   - Order payment status updates to **`PAID`** (green badge).
+   - The green **`[ Final Bill ]`** button on that active order row is replaced by a green **`[ Paid ]`** button.
+
+3. **Click `[ Paid ]`**:
+   - Calls `PATCH /api/orders/[id]` with `{ status: "COMPLETED" }`.
+   - Frees dining table (if Dine-In) and marks kitchen orders as completed.
+   - Moves the order from **Active Orders** tab to **Completed Orders** tab!
 
 ## Core POS & Billing Workflow Rules
 1. **POS Cart Reset on KOT & New Order**:
@@ -20,13 +25,16 @@
    - Clicking **[ New Order ]** in the top navbar calls `clearCart()` and navigates to `/pos`, resetting the cart terminal for a new customer.
 
 2. **Order Management (`/orders`) Centric Actions & Lifecycle**:
-   - **Unpaid / Active Orders**: Displays **[ View ]**, **[ Final Bill ]**, **[ Edit ]**, and **Trash Icon**.
-   - **Payment Confirmation**: Updates status to **`Completed`** and payment badge to **`PAID`**.
-   - **Paid / Completed Orders**: **[ Final Bill ]** and **[ Edit ]** are removed; **[ View ]**, **[ Receipt ]**, and **Trash Icon** appear.
+   - **Unpaid Active Orders**: Displays **[ View ]**, **[ Final Bill ]**, **[ Edit ]**, and **Trash Icon**.
+   - **Paid Active Orders**: Replaces **[ Final Bill ]** with **[ Paid ]**; displays **[ View ]**, **[ Paid ]**, **[ Receipt ]**, and **Trash Icon**.
+   - **Clicking [ Paid ]**: Updates status to `COMPLETED` and moves order to **Completed Orders** tab.
+   - **Paid / Completed Orders**: Displays **[ View ]**, **[ Receipt ]**, and **Trash Icon**.
 
 ## Files Updated
-- `services/dashboard-service.ts` (Added dynamic hourly trend & category breakdown calculations)
-- `components/dashboard/sales-chart.tsx` (Added default datasets and container min-height)
+- `services/billing-service.ts` (Preserves active order status upon payment confirmation)
+- `services/order-service.ts` (Added `updateOrderStatus` function)
+- `app/api/orders/[id]/route.ts` (Added `PATCH` endpoint for order status updates)
+- `app/(dashboard)/orders/page.tsx` (Replaced `Final Bill` with `Paid`, added auto thermal receipt generation, and status transition to `COMPLETED` on click)
 
 ## Known Issues / Testing Status
 - TypeScript compilation (`npx tsc --noEmit`): **0 errors**.

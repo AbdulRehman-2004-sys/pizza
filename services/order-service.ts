@@ -638,4 +638,34 @@ export async function deleteOrder(orderId: string) {
   });
 }
 
+export async function updateOrderStatus(orderId: string, status: OrderStatus) {
+  return safeDbQuery(async () => {
+    return prisma.$transaction(
+      async (tx) => {
+        const order = await tx.order.update({
+          where: { id: orderId },
+          data: { status },
+        });
+
+        if (status === OrderStatus.COMPLETED) {
+          await tx.kitchenOrder.updateMany({
+            where: { orderId },
+            data: { status: "COMPLETED" },
+          });
+
+          if (order.tableId) {
+            await tx.table.update({
+              where: { id: order.tableId },
+              data: { status: "AVAILABLE" },
+            });
+          }
+        }
+
+        return order;
+      },
+      { maxWait: 10000, timeout: 30000 }
+    );
+  });
+}
+
 

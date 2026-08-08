@@ -233,75 +233,6 @@ export default function OrderManagementPage() {
 
   // Edit Order Action: Load back into Cart
   const handleEditOrder = (order: any) => {
-    if (!order.items || order.items.length === 0) {
-      toast.error("Order has no items to edit");
-      return;
-    }
-
-    const cartItemsToLoad = order.items.map((item: any) => {
-      let selectedSize = undefined;
-      let cheesePrice = 0;
-
-      if (item.selectedSize) {
-        try {
-          selectedSize =
-            typeof item.selectedSize === "string"
-              ? JSON.parse(item.selectedSize)
-              : item.selectedSize;
-        } catch {
-          selectedSize = undefined;
-        }
-      }
-
-      if (item.hasExtraCheese) {
-        cheesePrice = 250;
-      }
-
-      let parsedToppings: any[] = [];
-      if (item.selectedToppings) {
-        try {
-          parsedToppings =
-            typeof item.selectedToppings === "string"
-              ? JSON.parse(item.selectedToppings)
-              : item.selectedToppings;
-        } catch {
-          parsedToppings = [];
-        }
-      }
-
-      let parsedItemDiscount = undefined;
-      if (item.itemDiscount) {
-        try {
-          parsedItemDiscount =
-            typeof item.itemDiscount === "string"
-              ? JSON.parse(item.itemDiscount)
-              : item.itemDiscount;
-        } catch {
-          parsedItemDiscount = undefined;
-        }
-      }
-
-      const toppingIds = parsedToppings.map((t: any) => t.id).sort().join("-");
-      const cartItemId = `${item.menuItemId}_${selectedSize?.id || "nosize"}_${item.hasExtraCheese ? "cheese" : "nocheese"}_${toppingIds}_${parsedItemDiscount?.type || "none"}_${parsedItemDiscount?.value || 0}_${(item.itemNotes || "").trim()}`;
-
-      return {
-        cartItemId,
-        productId: item.menuItemId,
-        name: item.menuItem?.name || item.name || "Menu Item",
-        image: item.menuItem?.image || null,
-        basePrice: item.unitPrice,
-        size: selectedSize,
-        extraCheese: !!item.hasExtraCheese,
-        cheesePrice,
-        toppings: parsedToppings,
-        itemNotes: item.itemNotes || undefined,
-        itemDiscount: parsedItemDiscount,
-        unitPrice: item.unitPrice,
-        quantity: item.quantity,
-        totalPrice: item.totalPrice,
-      };
-    });
-
     loadOrderIntoCart(order);
     toast.success(`Loaded Order #${order.orderNumber} into cart!`);
     router.push("/pos");
@@ -338,6 +269,27 @@ export default function OrderManagementPage() {
     }
   };
 
+  // Mark Active Order as Completed
+  const handleMarkCompleted = async (orderId: string, orderNumber: string) => {
+    try {
+      const res = await fetch(`/api/orders/${orderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "COMPLETED" }),
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        toast.success(`Order #${orderNumber} marked as Completed & moved to Completed Orders!`);
+        fetchOrders(false);
+      } else {
+        toast.error(json.error || "Failed to update order status");
+      }
+    } catch (error) {
+      console.error("Mark completed error:", error);
+      toast.error("Network error updating order status");
+    }
+  };
+
   // Delete Order Record Handler
   const handleDeleteOrder = async (orderId: string, orderNumber: string) => {
     if (!confirm(`Are you sure you want to delete Order #${orderNumber}? This action cannot be undone.`)) {
@@ -362,34 +314,25 @@ export default function OrderManagementPage() {
     }
   };
 
-  // Handle Payment Confirmation Success
+  // Handle Payment Confirmation Success (Generates Receipt Modal automatically)
   const handlePaymentSuccess = async (paymentResult: any) => {
     const targetOrderId =
-      paymentResult?.order?.id || paymentResult?.orderId || paymentResult?.invoice?.orderId;
+      paymentResult?.order?.id || paymentResult?.orderId || paymentResult?.invoice?.orderId || orderForPayment?.id;
 
     if (targetOrderId) {
       try {
-        const res = await fetch(`/api/orders/${targetOrderId}`);
+        const res = await fetch(`/api/billing/invoices/${targetOrderId}`);
         const json = await res.json();
-        const settingsRes = await fetch("/api/settings");
-        const settingsJson = await settingsRes.json();
 
         if (res.ok && json.success) {
-          setActiveFinalReceipt({
-            settings: settingsJson.data || {
-              restaurantName: "SliceMaster Pizzeria",
-              address: "Main Boulevard, Gulberg III, Lahore, Pakistan",
-              phone: "+92 42 111 749 922",
-              receiptFooter: "Thank you for dining with SliceMaster!",
-            },
-            order: json.data,
-          });
+          setActiveFinalReceipt(json.data);
         }
       } catch (error) {
         console.error("Fetch receipt detail error:", error);
       }
     }
 
+    toast.success("Payment confirmed! Click 'Paid' button when ready to move order to Completed.");
     await fetchOrders(false);
   };
 
@@ -624,7 +567,7 @@ export default function OrderManagementPage() {
                           <p className="text-[10px] text-slate-400 font-semibold">{elapsed}</p>
                         </td>
 
-                        {/* Action Buttons Column: View, Final Bill, Edit, Receipt, Trash */}
+                        {/* Action Buttons Column */}
                         <td className="p-4">
                           <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                             {/* View Button */}
@@ -638,32 +581,59 @@ export default function OrderManagementPage() {
                               View
                             </Button>
 
-                            {/* Unpaid / Active Order Actions: Final Bill & Edit */}
-                            {!isPaid && !isCompleted && !isCancelled && (
+                            {/* Active Order Actions */}
+                            {!isCompleted && !isCancelled && (
                               <>
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleOpenPayment(order)}
-                                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-2.5 h-8 shadow-sm"
-                                  leftIcon={<Receipt className="h-3.5 w-3.5" />}
-                                >
-                                  Final Bill
-                                </Button>
+                                {!isPaid ? (
+                                  // UNPAID ACTIVE ORDER: Show Final Bill & Edit
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      onClick={() => handleOpenPayment(order)}
+                                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-2.5 h-8 shadow-sm"
+                                      leftIcon={<Receipt className="h-3.5 w-3.5" />}
+                                    >
+                                      Final Bill
+                                    </Button>
 
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleEditOrder(order)}
-                                  className="px-2 h-8 text-[11px] font-bold border-slate-300 text-slate-700 hover:bg-amber-50 hover:text-amber-700 hover:border-amber-300"
-                                  leftIcon={<Edit3 className="h-3.5 w-3.5 text-amber-600" />}
-                                >
-                                  Edit
-                                </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleEditOrder(order)}
+                                      className="px-2 h-8 text-[11px] font-bold border-slate-300 text-slate-700 hover:bg-amber-50 hover:text-amber-700 hover:border-amber-300"
+                                      leftIcon={<Edit3 className="h-3.5 w-3.5 text-amber-600" />}
+                                    >
+                                      Edit
+                                    </Button>
+                                  </>
+                                ) : (
+                                  // PAID ACTIVE ORDER: Replace Final Bill button with Paid button!
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      onClick={() => handleMarkCompleted(order.id, order.orderNumber)}
+                                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-3 h-8 shadow-sm"
+                                      leftIcon={<CheckCircle2 className="h-3.5 w-3.5 text-white" />}
+                                    >
+                                      Paid
+                                    </Button>
+
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handlePrintReceipt(order.id)}
+                                      className="px-2 h-8 text-[11px] font-bold border-slate-300 text-slate-700 hover:bg-slate-100"
+                                      leftIcon={<Printer className="h-3.5 w-3.5 text-blue-600" />}
+                                    >
+                                      Receipt
+                                    </Button>
+                                  </>
+                                )}
                               </>
                             )}
 
-                            {/* Paid / Completed Order Actions: Receipt */}
-                            {(isPaid || isCompleted) && (
+                            {/* Completed / Historical Order Actions */}
+                            {isCompleted && (
                               <Button
                                 variant="outline"
                                 size="sm"
