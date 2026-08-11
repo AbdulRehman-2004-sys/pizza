@@ -28,52 +28,54 @@ export async function getKitchenQueue(filters?: {
   type?: string;
   search?: string;
 }) {
-  const whereClause: any = {};
+  return safeDbQuery(async () => {
+    const whereClause: any = {};
 
-  // Status Filtering
-  if (filters?.status && filters.status !== "ALL") {
-    whereClause.status = filters.status as OrderStatus;
-  } else {
-    whereClause.status = {
-      in: ["PENDING", "KITCHEN", "READY", "COMPLETED"],
-    };
-  }
+    // Status Filtering
+    if (filters?.status && filters.status !== "ALL") {
+      whereClause.status = filters.status as OrderStatus;
+    } else {
+      whereClause.status = {
+        in: ["PENDING", "KITCHEN", "READY", "COMPLETED"],
+      };
+    }
 
-  // Fetch orders
-  const kitchenOrders = await prisma.kitchenOrder.findMany({
-    where: whereClause,
-    orderBy: { createdAt: "asc" },
-    include: {
-      order: {
-        include: {
-          items: true,
-          table: true,
-          customer: true,
-          cashier: { select: { name: true } },
+    // Fetch orders
+    const kitchenOrders = await prisma.kitchenOrder.findMany({
+      where: whereClause,
+      orderBy: { createdAt: "asc" },
+      include: {
+        order: {
+          include: {
+            items: true,
+            table: true,
+            customer: true,
+            cashier: { select: { name: true } },
+          },
+        },
+        statusHistory: {
+          orderBy: { createdAt: "desc" },
+          include: { changedBy: { select: { name: true } } },
         },
       },
-      statusHistory: {
-        orderBy: { createdAt: "desc" },
-        include: { changedBy: { select: { name: true } } },
-      },
-    },
-  });
+    });
 
-  // Filter in memory for search & order type if specified
-  return kitchenOrders.filter((kot) => {
-    if (filters?.type && filters.type !== "ALL" && kot.order.type !== filters.type) {
-      return false;
-    }
-    if (filters?.search && filters.search.trim().length > 0) {
-      const q = filters.search.toLowerCase().trim();
-      const matchesOrderNum = kot.order.orderNumber.toLowerCase().includes(q);
-      const matchesKOTNum = kot.kotNumber.toLowerCase().includes(q);
-      const matchesCust = kot.order.customer?.name.toLowerCase().includes(q);
-      const matchesTable = kot.order.tableNumber?.toString().includes(q);
-      return matchesOrderNum || matchesKOTNum || matchesCust || matchesTable;
-    }
-    return true;
-  });
+    // Filter in memory for search & order type if specified
+    return kitchenOrders.filter((kot) => {
+      if (filters?.type && filters.type !== "ALL" && kot.order.type !== filters.type) {
+        return false;
+      }
+      if (filters?.search && filters.search.trim().length > 0) {
+        const q = filters.search.toLowerCase().trim();
+        const matchesOrderNum = kot.order.orderNumber.toLowerCase().includes(q);
+        const matchesKOTNum = kot.kotNumber.toLowerCase().includes(q);
+        const matchesCust = kot.order.customer?.name.toLowerCase().includes(q);
+        const matchesTable = kot.order.tableNumber?.toString().includes(q);
+        return matchesOrderNum || matchesKOTNum || matchesCust || matchesTable;
+      }
+      return true;
+    });
+  }, 2, []);
 }
 
 export async function updateKitchenOrderStatus(
@@ -157,32 +159,36 @@ export async function updateKitchenOrderStatus(
 }
 
 export async function getKitchenDashboardStats() {
-  const [pendingCount, preparingCount, readyCount, completedTodayCount] = await Promise.all([
-    prisma.kitchenOrder.count({ where: { status: "PENDING" } }),
-    prisma.kitchenOrder.count({ where: { status: "KITCHEN" } }),
-    prisma.kitchenOrder.count({ where: { status: "READY" } }),
-    prisma.kitchenOrder.count({ where: { status: "COMPLETED" } }),
-  ]);
+  return safeDbQuery(async () => {
+    const [pendingCount, preparingCount, readyCount, completedTodayCount] = await Promise.all([
+      prisma.kitchenOrder.count({ where: { status: "PENDING" } }),
+      prisma.kitchenOrder.count({ where: { status: "KITCHEN" } }),
+      prisma.kitchenOrder.count({ where: { status: "READY" } }),
+      prisma.kitchenOrder.count({ where: { status: "COMPLETED" } }),
+    ]);
 
-  return {
-    pendingCount,
-    preparingCount,
-    readyCount,
-    completedTodayCount,
-  };
+    return {
+      pendingCount,
+      preparingCount,
+      readyCount,
+      completedTodayCount,
+    };
+  }, 2, { pendingCount: 0, preparingCount: 0, readyCount: 0, completedTodayCount: 0 });
 }
 
 export async function getReadyNotifications() {
-  return prisma.kitchenOrder.findMany({
-    where: { status: "READY" },
-    orderBy: { readyAt: "desc" },
-    include: {
-      order: {
-        include: {
-          table: true,
-          customer: true,
+  return safeDbQuery(async () => {
+    return prisma.kitchenOrder.findMany({
+      where: { status: "READY" },
+      orderBy: { createdAt: "desc" },
+      include: {
+        order: {
+          include: {
+            table: true,
+            customer: true,
+          },
         },
       },
-    },
-  });
+    });
+  }, 2, []);
 }

@@ -11,9 +11,9 @@ export async function GET() {
     }
 
     const readyOrders = await getReadyNotifications();
-    return successResponse(readyOrders);
+    return successResponse(readyOrders || []);
   } catch (error) {
     console.error("GET /api/kitchen/ready-notifications error:", error);
-    return errorResponse("Failed to fetch ready notifications", 500);
+    return successResponse([]);
   }
 }

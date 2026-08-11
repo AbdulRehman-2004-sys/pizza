@@ -25,6 +25,7 @@ import {
   Receipt,
   FileText,
   Edit3,
+  CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
@@ -125,21 +126,27 @@ export function OrderDetailsDrawer({
   };
 
   const handlePaymentSuccess = async (paymentResult: any) => {
-    const targetOrderId =
-      paymentResult?.order?.id || paymentResult?.orderId || paymentResult?.invoice?.orderId || orderId;
+    await fetchOrderDetails();
+    if (onOrderUpdated) onOrderUpdated();
+    toast.success("Payment confirmed! Order completed.");
+  };
 
+  const handleFinalBill = async () => {
+    if (!orderId) return;
     try {
-      await fetchOrderDetails();
-      if (onOrderUpdated) onOrderUpdated();
-      if (targetOrderId) {
-        const res = await fetch(`/api/billing/invoices/${targetOrderId}`);
-        const json = await res.json();
-        if (res.ok && json.success) {
-          setReceiptData(json.data);
-        }
+      const res = await fetch(`/api/billing/invoices/${orderId}`);
+      const json = await res.json();
+      if (res.ok && json.success) {
+        setReceiptData(json.data);
+        toast.success(`Bill receipt generated for Order #${order?.orderNumber}`);
+        await fetchOrderDetails();
+        if (onOrderUpdated) onOrderUpdated();
+      } else {
+        toast.error(json.error || "Failed to generate bill receipt");
       }
     } catch (error) {
-      console.error("Receipt fetch error:", error);
+      console.error("Final bill error:", error);
+      toast.error("Network error generating final bill receipt");
     }
   };
 
@@ -148,6 +155,7 @@ export function OrderDetailsDrawer({
   const isCompleted = order?.status === "COMPLETED";
   const isCancelled = order?.status === "CANCELLED";
   const isPaid = isCompleted || !!order?.invoice?.payment;
+  const hasInvoice = !!order?.invoice;
   const canCancel = !isCancelled && (!isCompleted || user?.role === "ADMIN");
 
   return (
@@ -179,30 +187,57 @@ export function OrderDetailsDrawer({
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
-                {!isPaid && !isCancelled && (
+                {!isCompleted && !isCancelled && (
                   <>
-                    <Button
-                      size="sm"
-                      onClick={() => setIsPaymentModalOpen(true)}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
-                      leftIcon={<Receipt className="h-4 w-4" />}
-                    >
-                      Final Bill
-                    </Button>
+                    {!hasInvoice ? (
+                      // UNBILLED: Show Final Bill & Edit
+                      <>
+                        <Button
+                          size="sm"
+                          onClick={handleFinalBill}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                          leftIcon={<Receipt className="h-4 w-4" />}
+                        >
+                          Final Bill
+                        </Button>
 
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleEditOrder}
-                      className="bg-white/10 text-white border-white/20 hover:bg-white/20 font-bold"
-                      leftIcon={<Edit3 className="h-4 w-4" />}
-                    >
-                      Edit Order
-                    </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleEditOrder}
+                          className="bg-white/10 text-white border-white/20 hover:bg-white/20 font-bold"
+                          leftIcon={<Edit3 className="h-4 w-4" />}
+                        >
+                          Edit Order
+                        </Button>
+                      </>
+                    ) : (
+                      // BILLED: Show Paid & Print Receipt
+                      <>
+                        <Button
+                          size="sm"
+                          onClick={() => setIsPaymentModalOpen(true)}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                          leftIcon={<CheckCircle2 className="h-4 w-4" />}
+                        >
+                          Paid
+                        </Button>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handlePrintReceipt}
+                          className="bg-white/10 text-white border-white/20 hover:bg-white/20 font-bold"
+                          leftIcon={<Printer className="h-4 w-4" />}
+                        >
+                          Print Receipt
+                        </Button>
+                      </>
+                    )}
                   </>
                 )}
 
-                {isPaid && (
+                {isCompleted && (
                   <Button
                     variant="outline"
                     size="sm"

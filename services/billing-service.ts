@@ -27,11 +27,76 @@ export async function getReadyOrdersForBilling() {
   });
 }
 
-export async function getInvoiceDetails(orderId: string) {
+export async function getInvoiceDetails(orderId: string, userId?: string) {
   return safeDbQuery(async () => {
-    const [settings, order] = await Promise.all([
-      getRestaurantSettings(),
-      prisma.order.findUnique({
+    let order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: true,
+        table: true,
+        customer: true,
+        cashier: { select: { name: true } },
+        invoice: {
+          include: {
+            payment: {
+              include: {
+                processedBy: { select: { name: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new Error("Order not found.");
+    }
+
+    // Auto-create invoice if it does not exist yet when generating final bill receipt
+    if (!order.invoice) {
+      let validUserId = userId;
+      if (!validUserId) {
+        const fallbackUser = await prisma.user.findFirst({
+          where: { isActive: true },
+        });
+        validUserId = fallbackUser?.id || order.cashierId;
+      }
+
+      const lastInvoice = await prisma.invoice.findFirst({
+        orderBy: { createdAt: "desc" },
+        select: { invoiceNumber: true },
+      });
+
+      let nextNum = 1001;
+      if (lastInvoice && lastInvoice.invoiceNumber) {
+        const match = lastInvoice.invoiceNumber.match(/\d+/);
+        if (match) {
+          nextNum = parseInt(match[0], 10) + 1;
+        }
+      }
+
+      let invoiceNumber = `INV-${nextNum}`;
+      const existingInvNumber = await prisma.invoice.findUnique({
+        where: { invoiceNumber },
+      });
+      if (existingInvNumber) {
+        invoiceNumber = `INV-${Date.now().toString().slice(-6)}`;
+      }
+
+      await prisma.invoice.create({
+        data: {
+          invoiceNumber,
+          orderId: order.id,
+          subtotal: order.subtotal,
+          taxAmount: order.taxAmount,
+          discountAmount: order.discountAmount,
+          grandTotal: order.totalAmount,
+          createdById: validUserId,
+        },
+      });
+
+      // Refetch order with created invoice
+      order = await prisma.order.findUnique({
         where: { id: orderId },
         include: {
           items: true,
@@ -48,12 +113,10 @@ export async function getInvoiceDetails(orderId: string) {
             },
           },
         },
-      }),
-    ]);
-
-    if (!order) {
-      throw new Error("Order not found.");
+      });
     }
+
+    const settings = await getRestaurantSettings();
 
     return {
       settings,
@@ -169,11 +232,23 @@ export async function processOrderPayment(input: ProcessPaymentInput, userId: st
           });
         }
 
-        // 4. Return invoice and payment results (order status remains active until cashier clicks [ Paid ])
+        // 4. Update order status to COMPLETED and mark table as AVAILABLE if dine-in
+        const updatedOrder = await tx.order.update({
+          where: { id: order.id },
+          data: { status: "COMPLETED" },
+        });
+
+        if (order.tableId) {
+          await tx.table.update({
+            where: { id: order.tableId },
+            data: { status: "AVAILABLE" },
+          });
+        }
+
         return {
           invoice,
           payment,
-          order,
+          order: updatedOrder,
         };
       },
       { maxWait: 10000, timeout: 30000 }

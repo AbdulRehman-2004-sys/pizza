@@ -116,10 +116,8 @@ export default function OrderManagementPage() {
         // Map tab or selected status filter
         if (selectedStatus !== "ALL") {
           params.set("status", selectedStatus);
-        } else if (activeTab === "ACTIVE") {
+        } else {
           params.set("activeOnly", "true");
-        } else if (activeTab === "COMPLETED") {
-          params.set("status", "COMPLETED");
         }
 
         let effectiveStart = startDate;
@@ -159,7 +157,6 @@ export default function OrderManagementPage() {
       searchQuery,
       selectedType,
       selectedStatus,
-      activeTab,
       dateRangeShortcut,
       startDate,
       endDate,
@@ -238,7 +235,25 @@ export default function OrderManagementPage() {
     router.push("/pos");
   };
 
-  // Open Payment Modal for Unpaid Orders
+  // Final Bill Action: Generate invoice record & open thermal receipt
+  const handleFinalBill = async (order: any) => {
+    try {
+      const res = await fetch(`/api/billing/invoices/${order.id}`);
+      const json = await res.json();
+      if (res.ok && json.success) {
+        setActiveFinalReceipt(json.data);
+        toast.success(`Bill receipt generated for Order #${order.orderNumber}`);
+        await fetchOrders(true);
+      } else {
+        toast.error(json.error || "Failed to generate bill receipt");
+      }
+    } catch (error) {
+      console.error("Final bill error:", error);
+      toast.error("Network error generating final bill receipt");
+    }
+  };
+
+  // Open Payment Modal for Billed Orders
   const handleOpenPayment = (order: any) => {
     setOrderForPayment({
       id: order.id,
@@ -314,25 +329,9 @@ export default function OrderManagementPage() {
     }
   };
 
-  // Handle Payment Confirmation Success (Generates Receipt Modal automatically)
+  // Handle Payment Confirmation Success
   const handlePaymentSuccess = async (paymentResult: any) => {
-    const targetOrderId =
-      paymentResult?.order?.id || paymentResult?.orderId || paymentResult?.invoice?.orderId || orderForPayment?.id;
-
-    if (targetOrderId) {
-      try {
-        const res = await fetch(`/api/billing/invoices/${targetOrderId}`);
-        const json = await res.json();
-
-        if (res.ok && json.success) {
-          setActiveFinalReceipt(json.data);
-        }
-      } catch (error) {
-        console.error("Fetch receipt detail error:", error);
-      }
-    }
-
-    toast.success("Payment confirmed! Click 'Paid' button when ready to move order to Completed.");
+    toast.success("Payment confirmed! Order completed.");
     await fetchOrders(false);
   };
 
@@ -376,53 +375,7 @@ export default function OrderManagementPage() {
         </div>
       </div>
 
-      {/* Navigation Quick Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1">
-        <button
-          onClick={() => {
-            setActiveTab("ACTIVE");
-            setPage(1);
-          }}
-          className={`px-5 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 ${
-            activeTab === "ACTIVE"
-              ? "bg-slate-900 text-white shadow-md"
-              : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
-          }`}
-        >
-          <Clock className="h-4 w-4 text-pizza-400" />
-          <span>Active Orders</span>
-        </button>
 
-        <button
-          onClick={() => {
-            setActiveTab("COMPLETED");
-            setPage(1);
-          }}
-          className={`px-5 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 ${
-            activeTab === "COMPLETED"
-              ? "bg-slate-900 text-white shadow-md"
-              : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
-          }`}
-        >
-          <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-          <span>Completed Orders</span>
-        </button>
-
-        <button
-          onClick={() => {
-            setActiveTab("HISTORY");
-            setPage(1);
-          }}
-          className={`px-5 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 ${
-            activeTab === "HISTORY"
-              ? "bg-slate-900 text-white shadow-md"
-              : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
-          }`}
-        >
-          <Receipt className="h-4 w-4 text-blue-400" />
-          <span>Full Order History</span>
-        </button>
-      </div>
 
       {/* Filter Control Bar */}
       <OrderFilters
@@ -584,12 +537,12 @@ export default function OrderManagementPage() {
                             {/* Active Order Actions */}
                             {!isCompleted && !isCancelled && (
                               <>
-                                {!isPaid ? (
-                                  // UNPAID ACTIVE ORDER: Show Final Bill & Edit
+                                {!order.invoice ? (
+                                  // UNBILLED ACTIVE ORDER: Show Final Bill & Edit
                                   <>
                                     <Button
                                       size="sm"
-                                      onClick={() => handleOpenPayment(order)}
+                                      onClick={() => handleFinalBill(order)}
                                       className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-2.5 h-8 shadow-sm"
                                       leftIcon={<Receipt className="h-3.5 w-3.5" />}
                                     >
@@ -607,11 +560,11 @@ export default function OrderManagementPage() {
                                     </Button>
                                   </>
                                 ) : (
-                                  // PAID ACTIVE ORDER: Replace Final Bill button with Paid button!
+                                  // BILLED ACTIVE ORDER: Show Paid button & Receipt button
                                   <>
                                     <Button
                                       size="sm"
-                                      onClick={() => handleMarkCompleted(order.id, order.orderNumber)}
+                                      onClick={() => handleOpenPayment(order)}
                                       className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-3 h-8 shadow-sm"
                                       leftIcon={<CheckCircle2 className="h-3.5 w-3.5 text-white" />}
                                     >

@@ -11,7 +11,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       return errorResponse("Unauthenticated", 401);
     }
 
-    const data = await getInvoiceDetails(id);
+    const data = await getInvoiceDetails(id, session.id);
     return successResponse(data);
   } catch (error) {
     console.error("GET /api/billing/invoices/[id] error:", error);

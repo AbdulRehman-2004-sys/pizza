@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useCartStore } from "@/store/use-cart-store";
 import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,7 @@ export interface POSTableWithStatus {
 }
 
 export function POSCartPanel() {
+  const router = useRouter();
   const {
     activeOrderId,
     activeOrderNumber,
@@ -264,6 +266,9 @@ export function POSCartPanel() {
       setCustPhone("");
       setCustAddress("");
       fetchPOSInitData(); // Refresh tables status
+
+      // Redirect admin to Order Management page
+      router.push("/orders");
     } catch (error) {
       console.error("KOT creation error:", error);
       toast.error("Network error generating KOT");
